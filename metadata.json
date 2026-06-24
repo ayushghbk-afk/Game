@@ -1,0 +1,6 @@
+{
+  "name": "FPS Arena: Multiplayer Shooter",
+  "description": "A multiplayer first-person shooter with realistic 3D physics, destructible environments, customizable weapon loadouts, dynamic weather, team systems, voice chat indicators, and Firestore-backed player ranking.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
