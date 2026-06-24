@@ -52,6 +52,71 @@ export const WEAPONS: WeaponConfig[] = [
     energyCost: 35, // Charging the shot uses 35 energy
     description: 'Lightweight sidearm. Infinite backup reload, holds 15 energy bolts. Skill action triggers a tracking Plasma Burst using energy.',
     color: '#10b981'
+  },
+  {
+    id: 'awm',
+    name: 'AWM-Vanguard Bolt Sniper',
+    type: 'Sniper',
+    damage: 120,
+    fireRate: 45,
+    ammoMax: 5,
+    reloadTime: 3200,
+    recoil: 0.18,
+    energyCost: 10,
+    description: 'Legendary magnum bolt-action sniper rifle. Devastating damage at long distances, equipped with specialized armor-piercing rounds.',
+    color: '#10b981'
+  },
+  {
+    id: 'groza',
+    name: 'Groza-S Bullpup AR',
+    type: 'Rifle',
+    damage: 28,
+    fireRate: 750,
+    ammoMax: 30,
+    reloadTime: 1800,
+    recoil: 0.04,
+    energyCost: 0,
+    description: 'Integrated silenced bullpup assault rifle. High rate of fire with heavy stopping power up close.',
+    color: '#f59e0b'
+  },
+  {
+    id: 'm249',
+    name: 'M249-Titan Heavy LMG',
+    type: 'LMG',
+    damage: 19,
+    fireRate: 900,
+    ammoMax: 100,
+    reloadTime: 4200,
+    recoil: 0.05,
+    energyCost: 0,
+    description: 'High-capacity squad automatic weapon. 100-round belt-fed capacity allows for relentless suppression of multiple enemies.',
+    color: '#ec4899'
+  },
+  {
+    id: 'vector',
+    name: 'Vector-Vortex SMG',
+    type: 'SMG',
+    damage: 13,
+    fireRate: 1200,
+    ammoMax: 33,
+    reloadTime: 1400,
+    recoil: 0.02,
+    energyCost: 0,
+    description: 'Extreme rate of fire submachine gun. Shreds enemies in close quarters with absolute recoil stability.',
+    color: '#06b6d4'
+  },
+  {
+    id: 'deagle',
+    name: 'Deagle-Plasma Sidearm',
+    type: 'Pistol',
+    damage: 38,
+    fireRate: 240,
+    ammoMax: 7,
+    reloadTime: 1300,
+    recoil: 0.07,
+    energyCost: 10,
+    description: 'High-caliber plasma hand cannon. Deals serious damage per shot with high stopping power.',
+    color: '#e11d48'
   }
 ];
 

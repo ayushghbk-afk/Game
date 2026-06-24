@@ -43,7 +43,7 @@ export interface PeerPlayer {
 export interface WeaponConfig {
   id: string;
   name: string;
-  type: 'Rifle' | 'Sniper' | 'Shotgun' | 'Pistol';
+  type: 'Rifle' | 'Sniper' | 'Shotgun' | 'Pistol' | 'LMG' | 'SMG';
   damage: number;
   fireRate: number; // shots per minute
   ammoMax: number;

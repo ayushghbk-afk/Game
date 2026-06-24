@@ -266,7 +266,7 @@ async function startServer() {
           const adX = pz.centerX + Math.cos(angle) * dist;
           const adZ = pz.centerZ + Math.sin(angle) * dist;
 
-          const itemsList = ['AWM Sniper', 'M249 LMG', 'Groza AR', 'Ghillie Suit'];
+          const itemsList = ['AWM-Vanguard Bolt Sniper', 'M249-Titan Heavy LMG', 'Groza-S Bullpup AR', 'Vector-Vortex SMG', 'Deagle-Plasma Sidearm', 'Ghillie Suit'];
           const chosenItem = itemsList[Math.floor(Math.random() * itemsList.length)];
 
           const newAd = {
@@ -811,7 +811,7 @@ async function startServer() {
               ad.looted = true;
 
               // Upgrade player weapons & armor
-              if (ad.item === 'AWM Sniper' || ad.item === 'M249 LMG' || ad.item === 'Groza AR') {
+              if (ad.item === 'AWM-Vanguard Bolt Sniper' || ad.item === 'M249-Titan Heavy LMG' || ad.item === 'Groza-S Bullpup AR' || ad.item === 'Vector-Vortex SMG' || ad.item === 'Deagle-Plasma Sidearm') {
                 player.weapon = ad.item;
               }
               player.helmetLevel = 3; // Loot drop always gives Lvl 3 Helmet

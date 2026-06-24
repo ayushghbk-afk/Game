@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { WeaponConfig, PeerPlayer, KillFeedItem, PlayzoneState, AirdropState, LootBoxState } from '../types';
 import { WEAPONS, SKILLS } from '../constants';
 import { playVoiceSynthesis } from './AudioVoiceController';
-import { Crosshair } from 'lucide-react';
+import { Crosshair, ArrowUp, RefreshCw, Plus, Zap, Hand } from 'lucide-react';
 
 interface ThreeGameProps {
   socket: WebSocket | null;
@@ -24,6 +24,7 @@ interface ThreeGameProps {
 
   // --- Battle Royale Callbacks ---
   onInventoryUpdate?: (inv: { helmetLevel: number; vestLevel: number; medkits: number; boosters: number }) => void;
+  onWeaponUpdate?: (weapon: WeaponConfig) => void;
   onPlayzoneUpdate?: (pz: PlayzoneState, dist: number) => void;
   onGlidingChange?: (gliding: boolean) => void;
   onLootProximityChange?: (loot: { id: string; name: string; type: 'airdrop' | 'lootbox' } | null) => void;
@@ -44,6 +45,7 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
   onPeerSpeakingUpdate,
   gameTriggerRef,
   onInventoryUpdate,
+  onWeaponUpdate,
   onPlayzoneUpdate,
   onGlidingChange,
   onLootProximityChange
@@ -56,6 +58,136 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
   const [energy, setEnergy] = useState(100);
   const [ammo, setAmmo] = useState(activeWeapon.ammoMax);
   const [reloading, setReloading] = useState(false);
+  
+  // Mobile touch controls state and refs
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileLoot, setMobileLoot] = useState<{ id: string; name: string; type: 'airdrop' | 'lootbox' } | null>(null);
+  const joystickVec = useRef({ x: 0, y: 0 });
+  const [joyThumb, setJoyThumb] = useState({ x: 0, y: 0 });
+  const joystickActive = useRef(false);
+  const joystickTouchId = useRef<number | null>(null);
+  const joystickStartPos = useRef({ x: 0, y: 0 });
+
+  // Touch look-around variables
+  const lookTouchId = useRef<number | null>(null);
+  const lookLastPos = useRef({ x: 0, y: 0 });
+
+  // Detect mobile/touch support on mount
+  useEffect(() => {
+    const detectMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                         ('ontouchstart' in window) || 
+                         navigator.maxTouchPoints > 0;
+    setIsMobile(detectMobile);
+  }, []);
+
+  const handleJoystickStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const touch = e.changedTouches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    joystickStartPos.current = { x: centerX, y: centerY };
+    joystickActive.current = true;
+    joystickTouchId.current = touch.identifier;
+  };
+
+  const handleJoystickMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!joystickActive.current || joystickTouchId.current === null) return;
+    
+    let touch: React.Touch | null = null;
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === joystickTouchId.current) {
+        touch = e.touches[i];
+        break;
+      }
+    }
+    if (!touch) return;
+
+    const dx = touch.clientX - joystickStartPos.current.x;
+    const dy = touch.clientY - joystickStartPos.current.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const maxRadius = 45; // limit boundary for thumb movement
+
+    let percentX = dx / maxRadius;
+    let percentY = dy / maxRadius;
+
+    if (distance > maxRadius) {
+      percentX /= (distance / maxRadius);
+      percentY /= (distance / maxRadius);
+    }
+
+    setJoyThumb({
+      x: percentX * maxRadius,
+      y: percentY * maxRadius
+    });
+
+    joystickVec.current = {
+      x: percentX,
+      y: percentY // forward/back
+    };
+  };
+
+  const handleJoystickEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    let touchMatch = false;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joystickTouchId.current) {
+        touchMatch = true;
+        break;
+      }
+    }
+    if (!touchMatch) return;
+
+    joystickActive.current = false;
+    joystickTouchId.current = null;
+    setJoyThumb({ x: 0, y: 0 });
+    joystickVec.current = { x: 0, y: 0 };
+  };
+
+  const handleLookStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.joystick-container') || target.closest('button')) return;
+
+    const touch = e.changedTouches[0];
+    lookTouchId.current = touch.identifier;
+    lookLastPos.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleLookMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (lookTouchId.current === null) return;
+
+    let touch: React.Touch | null = null;
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === lookTouchId.current) {
+        touch = e.touches[i];
+        break;
+      }
+    }
+    if (!touch) return;
+
+    const dx = touch.clientX - lookLastPos.current.x;
+    const dy = touch.clientY - lookLastPos.current.y;
+
+    const touchSensitivity = 0.0055;
+    cameraRotation.current.yaw -= dx * touchSensitivity;
+    cameraRotation.current.pitch -= dy * touchSensitivity;
+
+    cameraRotation.current.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, cameraRotation.current.pitch));
+
+    lookLastPos.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleLookEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    let touchMatch = false;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === lookTouchId.current) {
+        touchMatch = true;
+        break;
+      }
+    }
+    if (touchMatch) {
+      lookTouchId.current = null;
+    }
+  };
   
   // Game scores (accumulated locally in active round)
   const statsRef = useRef({ kills: 0, deaths: 0, score: 0 });
@@ -1109,6 +1241,12 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
               boosters: msg.boosters
             };
             onInventoryUpdate?.(localInventory.current);
+            if (msg.weaponName) {
+              const foundWeapon = WEAPONS.find(w => w.name === msg.weaponName || w.id === msg.weaponName);
+              if (foundWeapon) {
+                onWeaponUpdate?.(foundWeapon);
+              }
+            }
             playVoiceSynthesis('System', `Looted supply package: ${msg.item}!`, 'FFA');
             break;
           }
@@ -1466,17 +1604,22 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
       }
 
       // 2. Perform player movement input & Euler-Cromer Physics Integration
-      if (pointerLocked.current && health > 0) {
+      if ((pointerLocked.current || isMobile) && health > 0) {
         const moveVec = new THREE.Vector3();
         
-        // Front/back directions
-        if (keys.current['KeyW']) moveVec.z -= 1;
-        if (keys.current['KeyS']) moveVec.z += 1;
-        // Strafe directions
-        if (keys.current['KeyA']) moveVec.x -= 1;
-        if (keys.current['KeyD']) moveVec.x += 1;
-
-        moveVec.normalize();
+        if (isMobile && (joystickVec.current.x !== 0 || joystickVec.current.y !== 0)) {
+          // Use mobile joystick inputs
+          moveVec.z = joystickVec.current.y;
+          moveVec.x = joystickVec.current.x;
+        } else {
+          // Front/back directions
+          if (keys.current['KeyW']) moveVec.z -= 1;
+          if (keys.current['KeyS']) moveVec.z += 1;
+          // Strafe directions
+          if (keys.current['KeyA']) moveVec.x -= 1;
+          if (keys.current['KeyD']) moveVec.x += 1;
+          moveVec.normalize();
+        }
         
         // Rotate input into camera yaw coordinate grid orientation
         moveVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraRotation.current.yaw);
@@ -1504,14 +1647,19 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
           velocity.current.y = Math.max(-3.5, velocity.current.y - 12 * delta);
           
           // Enhanced gliding controls! WASD moves the player faster in the air to allow landing selection
-          if (pointerLocked.current && health > 0) {
+          if ((pointerLocked.current || isMobile) && health > 0) {
             const glideVec = new THREE.Vector3();
-            if (keys.current['KeyW']) glideVec.z -= 1.8; // forward steer
-            if (keys.current['KeyS']) glideVec.z += 1.2;
-            if (keys.current['KeyA']) glideVec.x -= 1.2;
-            if (keys.current['KeyD']) glideVec.x += 1.2;
+            if (isMobile && (joystickVec.current.x !== 0 || joystickVec.current.y !== 0)) {
+              glideVec.z = joystickVec.current.y * 1.5;
+              glideVec.x = joystickVec.current.x * 1.5;
+            } else {
+              if (keys.current['KeyW']) glideVec.z -= 1.8; // forward steer
+              if (keys.current['KeyS']) glideVec.z += 1.2;
+              if (keys.current['KeyA']) glideVec.x -= 1.2;
+              if (keys.current['KeyD']) glideVec.x += 1.2;
+              glideVec.normalize();
+            }
             
-            glideVec.normalize();
             glideVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraRotation.current.yaw);
             
             playerPosition.current.x += glideVec.x * delta * 18;
@@ -1607,6 +1755,7 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
 
       if (JSON.stringify(currentLootProximity.current) !== JSON.stringify(nearestLoot)) {
         currentLootProximity.current = nearestLoot;
+        setMobileLoot(nearestLoot);
         onLootProximityChange?.(nearestLoot);
       }
 
@@ -1654,10 +1803,139 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
     <div 
       ref={mountRef} 
       id="three-fps-canvas-container" 
-      className="w-full h-full relative cursor-crosshair overflow-hidden"
+      className="w-full h-full relative cursor-crosshair overflow-hidden touch-none"
     >
-      {/* Pointer Lock Help message Overlay (displays if not pointer locked) */}
-      {!pointerLocked.current && (
+      {/* Mobile Touch Overlay - handles swiping to look around anywhere outside buttons */}
+      {isMobile && health > 0 && (
+        <div 
+          className="absolute inset-0 z-10 bg-transparent"
+          onTouchStart={handleLookStart}
+          onTouchMove={handleLookMove}
+          onTouchEnd={handleLookEnd}
+          onTouchCancel={handleLookEnd}
+        >
+          {/* Top Bar Switcher to reset back to Mouse Controls if desired */}
+          <div className="absolute top-4 left-4 flex gap-2 z-20 pointer-events-auto">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setIsMobile(false); }}
+              className="px-3 py-1.5 bg-slate-900/80 border border-slate-700/60 rounded-lg text-[10px] uppercase font-bold tracking-wider text-slate-300 hover:text-white cursor-pointer backdrop-blur-sm shadow-md"
+            >
+              Mouse Mode
+            </button>
+          </div>
+
+          {/* Virtual Joystick (Bottom Left) */}
+          <div 
+            className="joystick-container absolute bottom-8 left-8 w-28 h-28 bg-slate-900/30 border-2 border-slate-400/25 rounded-full flex items-center justify-center backdrop-blur-[2px] shadow-lg z-20 pointer-events-auto"
+            onTouchStart={handleJoystickStart}
+            onTouchMove={handleJoystickMove}
+            onTouchEnd={handleJoystickEnd}
+            onTouchCancel={handleJoystickEnd}
+          >
+            <div 
+              className="w-11 h-11 bg-emerald-500/80 border border-emerald-400 rounded-full shadow-md"
+              style={{
+                transform: `translate(${joyThumb.x}px, ${joyThumb.y}px)`,
+                transition: joystickActive.current ? 'none' : 'transform 0.15s ease-out'
+              }}
+            />
+          </div>
+
+          {/* Mobile Buttons Hub (Bottom Right Area) */}
+          <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 pointer-events-none z-20">
+            {/* Loot Prompt Button (Golden, Floating above Fire) */}
+            {mobileLoot && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (socket && socket.readyState === WebSocket.OPEN) {
+                    if (mobileLoot.type === 'airdrop') {
+                      socket.send(JSON.stringify({ type: 'loot_airdrop', airdropId: mobileLoot.id }));
+                    } else if (mobileLoot.type === 'lootbox') {
+                      socket.send(JSON.stringify({ type: 'loot_box', boxId: mobileLoot.id }));
+                    }
+                  }
+                }}
+                className="pointer-events-auto px-5 py-3 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-extrabold uppercase tracking-widest text-[11px] rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/30 animate-bounce cursor-pointer border border-yellow-300/40"
+              >
+                <Hand className="w-4 h-4 text-slate-950 animate-pulse" />
+                Loot {mobileLoot.name === "DEATH CRATE LOOT" ? "Crate" : "Airdrop"} [F]
+              </button>
+            )}
+
+            {/* Quick Healing Controls (Above shoot button) */}
+            <div className="flex gap-2 pointer-events-auto">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: 'use_item', item: 'medkit' }));
+                  }
+                }}
+                className="w-12 h-12 bg-emerald-600/80 hover:bg-emerald-500 border border-emerald-400/40 rounded-xl flex flex-col items-center justify-center text-white backdrop-blur-sm shadow-md active:scale-95 transition-transform cursor-pointer"
+              >
+                <Plus className="w-5 h-5 text-emerald-100" />
+                <span className="text-[8px] font-bold uppercase tracking-wider mt-0.5">Heal</span>
+              </button>
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: 'use_item', item: 'booster' }));
+                  }
+                }}
+                className="w-12 h-12 bg-amber-600/80 hover:bg-amber-500 border border-amber-400/40 rounded-xl flex flex-col items-center justify-center text-white backdrop-blur-sm shadow-md active:scale-95 transition-transform cursor-pointer"
+              >
+                <Zap className="w-5 h-5 text-amber-100" />
+                <span className="text-[8px] font-bold uppercase tracking-wider mt-0.5">Boost</span>
+              </button>
+            </div>
+
+            {/* Core Action Grid: Reload, Jump, and Primary FIRE */}
+            <div className="flex items-center gap-4 pointer-events-auto">
+              {/* Reload Button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); triggerReload(); }}
+                className="w-14 h-14 bg-slate-800/85 hover:bg-slate-700/90 border border-slate-600/40 rounded-full flex flex-col items-center justify-center text-white backdrop-blur-sm shadow-md active:scale-90 transition-transform cursor-pointer"
+                title="Reload"
+              >
+                <RefreshCw className="w-5 h-5 text-slate-200" />
+                <span className="text-[8px] font-mono tracking-wider font-bold mt-0.5">RELOAD</span>
+              </button>
+
+              {/* Jump Button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isGrounded.current) {
+                    velocity.current.y = 8;
+                    isGrounded.current = false;
+                  }
+                }}
+                className="w-16 h-16 bg-indigo-600/80 hover:bg-indigo-500 border border-indigo-400/40 rounded-full flex flex-col items-center justify-center text-white backdrop-blur-sm shadow-lg shadow-indigo-500/10 active:scale-90 transition-transform cursor-pointer"
+              >
+                <ArrowUp className="w-6 h-6 text-indigo-100" />
+                <span className="text-[9px] font-extrabold tracking-wider font-sans mt-0.5">JUMP</span>
+              </button>
+
+              {/* Massive Primary FIRE Button */}
+              <button
+                onTouchStart={(e) => { e.stopPropagation(); isShootingInput.current = true; }}
+                onTouchEnd={(e) => { e.stopPropagation(); isShootingInput.current = false; }}
+                onTouchCancel={(e) => { e.stopPropagation(); isShootingInput.current = false; }}
+                className="w-24 h-24 bg-red-600/85 hover:bg-red-500 border-2 border-red-400 rounded-full flex flex-col items-center justify-center text-white backdrop-blur-md shadow-2xl shadow-red-600/40 active:scale-95 transition-transform cursor-pointer select-none"
+              >
+                <Crosshair className="w-8 h-8 text-white" />
+                <span className="text-[10px] font-black uppercase tracking-widest font-sans mt-1">FIRE</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pointer Lock Help message Overlay (displays if not pointer locked and NOT mobile) */}
+      {!pointerLocked.current && !isMobile && (
         <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 z-30 text-center">
           <Crosshair className="w-12 h-12 text-emerald-400 mb-4 animate-pulse" />
           <h2 className="text-md font-extrabold uppercase tracking-widest text-slate-100">
@@ -1666,12 +1944,20 @@ export const ThreeGame: React.FC<ThreeGameProps> = ({
           <p className="text-xs text-slate-400 max-w-sm mt-1 mb-6 leading-relaxed">
             Click inside the display port to initialize pointer lock mouse controls. Move with <span className="text-white bg-slate-800 px-1 py-0.5 rounded font-mono font-bold">WASD</span>, jump with <span className="text-white bg-slate-800 px-1.5 py-0.5 rounded font-mono font-bold">SPACE</span>, and shoot with <span className="text-white bg-slate-800 px-1 py-0.5 rounded font-mono font-bold">CLICK</span>.
           </p>
-          <button 
-            onClick={() => mountRef.current?.requestPointerLock()}
-            className="px-6 py-2.5 bg-emerald-500 text-slate-950 text-xs font-bold uppercase tracking-widest rounded-lg transition-all shadow-lg shadow-emerald-500/10 cursor-pointer"
-          >
-            Lock Target Coordinates
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button 
+              onClick={() => mountRef.current?.requestPointerLock()}
+              className="px-6 py-2.5 bg-emerald-500 text-slate-950 text-xs font-bold uppercase tracking-widest rounded-lg transition-all shadow-lg shadow-emerald-500/10 cursor-pointer"
+            >
+              Lock Target Coordinates
+            </button>
+            <button 
+              onClick={() => setIsMobile(true)}
+              className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold uppercase tracking-widest rounded-lg transition-all shadow-lg shadow-indigo-600/20 cursor-pointer"
+            >
+              Play on Mobile (Touch)
+            </button>
+          </div>
         </div>
       )}
     </div>

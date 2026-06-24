@@ -224,6 +224,9 @@ export default function App() {
               setMedkits(inv.medkits);
               setBoosters(inv.boosters);
             }}
+            onWeaponUpdate={(newWeapon) => {
+              setMatchOptions(prev => prev ? { ...prev, activeWeapon: newWeapon } : null);
+            }}
             onPlayzoneUpdate={(pz, dist) => {
               setPlayzone(pz);
               setDistanceToSafeZone(dist);
