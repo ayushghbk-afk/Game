@@ -1,0 +1,20 @@
+{
+  "name": "solar-odyssey",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Solar Odyssey — a 3D solar system exploration game running entirely in the browser.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node test/smoke.mjs && node test/ui-smoke.mjs"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1",
+    "vite": "^7.1.3"
+  }
+}
