@@ -8,7 +8,7 @@ import { hasStorage, SaveSystem } from '../save/SaveSystem.js';
 export class Menu {
   constructor(root, actions, gs) {
     this.gs = gs;
-    this.actions = actions; // {play, newGame, missions, ship, codex, settingsChanged, help, save, quitToMenu}
+    this.actions = actions; // {play, newGame, missions, ship, codex, settingsChanged, help, save, quitToMenu, redeem}
     this.overlay = el('div', 'main-menu');
     this.overlay.innerHTML = `
       <div class="menu-shell">
@@ -27,6 +27,7 @@ export class Menu {
             <button class="menu-btn" id="mm-missions">MISSIONS</button>
             <button class="menu-btn" id="mm-ship">SHIP</button>
             <button class="menu-btn" id="mm-codex">CODEX</button>
+            <button class="menu-btn" id="mm-redeem">🎁 REDEEM CODE</button>
             <button class="menu-btn" id="mm-settings">SETTINGS</button>
             <button class="menu-btn" id="mm-help">HELP</button>
           </nav>
@@ -53,6 +54,7 @@ export class Menu {
     this.overlay.querySelector('#mm-missions').addEventListener('click', () => { this.showMissions(); });
     this.overlay.querySelector('#mm-ship').addEventListener('click', () => { this.showShip(); });
     this.overlay.querySelector('#mm-codex').addEventListener('click', actions.codex);
+    this.overlay.querySelector('#mm-redeem').addEventListener('click', () => { this.showRedeem(); });
     this.overlay.querySelector('#mm-settings').addEventListener('click', () => { this.showSettings(); });
     this.overlay.querySelector('#mm-help').addEventListener('click', () => { this.showHelp(); });
 
@@ -73,6 +75,7 @@ export class Menu {
         <div class="pause-title">PAUSED</div>
         <button class="menu-btn primary" id="pz-resume">RESUME</button>
         <button class="menu-btn" id="pz-save">SAVE GAME</button>
+        <button class="menu-btn" id="pz-redeem">🎁 REDEEM CODE</button>
         <button class="menu-btn" id="pz-vab">🚀 ROCKET WORKSHOP</button>
         <button class="menu-btn" id="pz-settings">SETTINGS</button>
         <button class="menu-btn" id="pz-help">HELP</button>
@@ -81,6 +84,7 @@ export class Menu {
     root.appendChild(this.pause);
     this.pause.querySelector('#pz-resume').addEventListener('click', actions.resume);
     this.pause.querySelector('#pz-save').addEventListener('click', actions.save);
+    this.pause.querySelector('#pz-redeem').addEventListener('click', () => { this.showRedeem(); });
     this.pause.querySelector('#pz-vab').addEventListener('click', () => actions.rocketBuilder?.());
     this.pause.querySelector('#pz-settings').addEventListener('click', () => { this.showSettings(); });
     this.pause.querySelector('#pz-help').addEventListener('click', () => { this.showHelp(); });
@@ -95,7 +99,8 @@ export class Menu {
     this.settingsModal = makeModal('settings-modal', 'SETTINGS');
     this.helpModal = makeModal('help-modal', 'FLIGHT MANUAL');
     this.confirmModal = makeModal('confirm-modal', 'CONFIRM');
-    for (const m of [this.missionsModal, this.shipModal, this.settingsModal, this.helpModal, this.confirmModal])
+    this.redeemModal = makeModal('redeem-modal', 'REDEEM CODE');
+    for (const m of [this.missionsModal, this.shipModal, this.settingsModal, this.helpModal, this.confirmModal, this.redeemModal])
       root.appendChild(m.root);
   }
 
@@ -428,6 +433,54 @@ export class Menu {
     m.body.appendChild(grid);
     m.body.appendChild(el('p', 'dim', 'Upgrade your ship at any space station. Earn credits by mining asteroids and selling resources.'));
     m.root.classList.remove('hidden');
+  }
+
+  // ---- REDEEM CODE modal ----
+  showRedeem() {
+    const m = this.redeemModal;
+    clearChildren(m.body);
+    m.body.appendChild(el('p', 'dim',
+      'Got a secret code, Commander? Type it below and press REDEEM — the reward lands in your current career instantly. Each code works once per career.'));
+    const row = el('div', 'form-row');
+    const input = el('input', 'input');
+    input.type = 'text';
+    input.placeholder = 'Enter secret code';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    row.appendChild(input);
+    m.body.appendChild(row);
+    const status = el('div', 'form-status', '');
+    const submit = () => {
+      const code = input.value;
+      if (!code.trim()) {
+        status.textContent = 'Type a code first.';
+        status.className = 'form-status error';
+        return;
+      }
+      const res = this.actions.redeem?.(code) || { ok: false, reason: 'invalid' };
+      if (res.ok) {
+        status.textContent = `✔ ${res.label} — +${res.credits.toLocaleString()} CR added to this career.`;
+        status.className = 'form-status ok';
+        input.value = '';
+      } else if (res.reason === 'already') {
+        status.textContent = 'That code was already redeemed in this career.';
+        status.className = 'form-status error';
+      } else {
+        status.textContent = 'Invalid code — check it and try again.';
+        status.className = 'form-status error';
+      }
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    const btnRow = el('div', 'btn-row');
+    const go = el('button', 'btn btn-primary', 'REDEEM');
+    go.addEventListener('click', submit);
+    const back = el('button', 'btn', 'CLOSE');
+    back.addEventListener('click', () => m.close());
+    btnRow.append(go, back);
+    m.body.appendChild(btnRow);
+    m.body.appendChild(status);
+    m.root.classList.remove('hidden');
+    setTimeout(() => input.focus(), 0);
   }
 
   // ---- SETTINGS modal ----

@@ -3,6 +3,7 @@
 // discoveries, achievements, settings) lives here.
 import { DEFAULT_SETTINGS, ECONOMY, LEVELS, UPGRADES } from '../config.js';
 import { addResource, cargoUsed } from '../world/Resources.js';
+import { lookupRedeemCode } from './RedeemCodes.js';
 import { SaveSystem } from '../save/SaveSystem.js';
 
 export const ACHIEVEMENTS = [
@@ -43,6 +44,7 @@ export function freshState() {
     visited: [],         // bodies entered SOI of
     anomalies: [],       // anomaly ids found
     achievements: [],
+    redeemedCodes: [],   // SHA-256 digests of gift codes already claimed (one use per career)
     supplyOrders: [],    // orders placed from Earth to a planetary outpost
     collectedCaches: [], // "planetId:cacheIndex" — caches already recovered (no re-farming)
     rockets: { designs: [], active: null, built: [] }, // VAB: saved rocket designs
@@ -192,6 +194,22 @@ export class GameState {
     this.state.achievements.push(id);
     this.emit('achievement', id);
     return true;
+  }
+
+  // ---- redeem codes ----
+  /**
+   * Try to redeem a secret gift code. Codes are matched by SHA-256 digest
+   * (see RedeemCodes.js) and each code works once per career.
+   * @returns {ok:true, credits, label} | {ok:false, reason:'invalid'|'already'}
+   */
+  redeemCode(input) {
+    const entry = lookupRedeemCode(input);
+    if (!entry) return { ok: false, reason: 'invalid' };
+    if (this.state.redeemedCodes.includes(entry.hash)) return { ok: false, reason: 'already' };
+    this.state.redeemedCodes.push(entry.hash);
+    this.addCredits(entry.credits);
+    this.emit('redeem', entry);
+    return { ok: true, credits: entry.credits, label: entry.label };
   }
 
   // ---- persistence ----

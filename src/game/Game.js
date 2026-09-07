@@ -149,6 +149,7 @@ export class Game {
       // --- account / online ---
       account: () => this.openAccount(),
       accountInfo: () => this.accountInfo(),
+      redeem: (code) => this.redeemCode(code),
       rocketBuilder: () => this.openRocketBuilder(),
       // --- careers ---
       loadSlot: (slot) => this.loadSlot(slot),
@@ -320,6 +321,7 @@ export class Game {
       settings: this.menu.settingsModal.root,
       ship: this.menu.shipModal.root,
       help: this.menu.helpModal.root,
+      redeem: this.menu.redeemModal.root,
       codex: this.codex.modal.root,
       map: this.mapView.rootEl,
       docked: this.dockPanel.modal.root,
@@ -790,6 +792,7 @@ export class Game {
     this.menu.settingsModal.close();
     this.menu.helpModal.close();
     this.menu.confirmModal.close();
+    this.menu.redeemModal.close();
     this.confirmM.close();
     this.accountPanel.hide();
     this.rocketBuilder.modal.root.classList.add('hidden');
@@ -2375,6 +2378,19 @@ export class Game {
     this.modalOpen = 'account';
   }
 
+  // ================================================================ REDEEM CODES
+  /** Validate + bank a secret gift code (see RedeemCodes.js). Toasts and
+   *  saves on success; returns the result so the panel can show a status. */
+  redeemCode(input) {
+    const res = this.gs.redeemCode(input);
+    if (res.ok) {
+      this.audio.levelUp();
+      this.toasts.show('CODE REDEEMED', `${res.label} — +${res.credits.toLocaleString()} CR`, 'success', 5000);
+      this.saveGame();
+    }
+    return res;
+  }
+
   async _onAccountChanged() {
     if (!this.backend.signedIn) return;
     // Pull cloud settings (they win — that's the point of syncing) and
@@ -3062,3 +3078,4 @@ export class Game {
 function ECON_LABEL(k) {
   return ({ iron: 'Iron', nickel: 'Nickel', water: 'Water', ice: 'Ice', food: 'Food', parts: 'Spare Parts', rare: 'Rare Minerals' })[k] || k;
 }
+
