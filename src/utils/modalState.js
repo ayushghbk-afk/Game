@@ -26,6 +26,7 @@ export const MODAL_PRIORITY = [
   'ship',
   'help',
   'codex',
+  'base',
   'map',
   'docked',
   'planetinfo'

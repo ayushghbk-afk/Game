@@ -67,7 +67,11 @@ export class Codex {
           ? 'Exotic elements found in rare-metal asteroids and deep-space anomalies. Extremely valuable.'
           : id === 'water' || id === 'ice'
             ? 'Volatile ices from cometary bodies and ice asteroids. Life support & fuel feedstock.'
-            : 'Common structural metals from the main asteroid belt.'));
+            : id === 'food'
+              ? 'Ration packs grown and stored at planetary outposts. Eat to keep the astronaut fed — 1 ration restores 45 satiety.'
+              : id === 'parts'
+                ? 'Spare parts used to repair broken rovers and maintain outpost systems in the field.'
+                : 'Common structural metals from the main asteroid belt.'));
     }
     this.content.appendChild(this.entryRow('SHIP SYSTEMS', true,
       'Engines · Tanks · Shields · Scanners · Cargo',

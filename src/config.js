@@ -198,9 +198,24 @@ export const ECONOMY = {
     nickel: { name: 'Nickel',       price: 14,  color: '#a8b0b8' },
     ice:    { name: 'Ice',          price: 18,  color: '#9fd8ff' },
     water:  { name: 'Water',        price: 25,  color: '#5aa8ff' },
+    food:   { name: 'Food',         price: 30,  color: '#7dffa8' },
+    parts:  { name: 'Spare Parts',  price: 60,  color: '#ffd97a' },
     rare:   { name: 'Rare Minerals', price: 250, color: '#e86aff' }
   },
-  startCredits: 250
+  startCredits: 250,
+  // Surface outpost / survival tuning (the planetary base the astronaut lives in).
+  surface: {
+    repairCredits: 900,        // CR per broken rover repaired
+    repairXP: 220,             // XP per broken rover repaired
+    repairParts: 1,            // spare parts consumed per repair
+    maintainCredits: 650,      // CR per station maintenance job
+    maintainXP: 160,           // XP per station maintenance job
+    maintainParts: 1,          // spare parts consumed per maintenance
+    maintainCooldown: 45,      // game-seconds between maintenance jobs
+    hungerDrainPerSec: 0.14,   // full->0 satiety in ~12 real minutes
+    hungerWarnAt: 25,          // below this satiety, warn + slow energy regen
+    satietyPerMeal: 45         // food units restored per meal
+  }
 };
 
 // ---- Ship upgrades ----

@@ -52,8 +52,11 @@ export class HUD {
       fuel: makeBar('FUEL', 'c-fuel'),
       shield: makeBar('SHIELD', 'c-shield'),
       energy: makeBar('ENERGY', 'c-energy'),
-      hull: makeBar('HULL', 'c-hull')
+      hull: makeBar('HULL', 'c-hull'),
+      satiety: makeBar('FOOD', 'c-food')
     };
+    this.bars.satiety.set(0); // keep a finite inline width even while hidden
+    this.bars.satiety.root.classList.add('hidden');
     Object.values(this.bars).forEach(b => bars.appendChild(b.root));
 
     this.credits = this.root.querySelector('#hud-credits-val');
@@ -89,6 +92,13 @@ export class HUD {
     this.bars.shield.set(d.shield / d.shieldMax);
     this.bars.energy.set(d.energy / d.energyMax);
     this.bars.hull.set(d.hull / d.hullMax);
+    // astronaut satiety — only visible on a planetary surface
+    if (d.satiety !== undefined) {
+      this.bars.satiety.root.classList.remove('hidden');
+      this.bars.satiety.set(d.satiety);
+    } else {
+      this.bars.satiety.root.classList.add('hidden');
+    }
     if (this._credits !== d.credits) { this._credits = d.credits; this.credits.textContent = formatNumber(d.credits); }
     if (this._level !== d.level) { this._level = d.level; this.level.textContent = 'LV ' + d.level; }
     if (this._clock !== d.clock) { this._clock = d.clock; this.clock.textContent = d.clock; }

@@ -41,6 +41,7 @@ const { PlanetInfoPanel } = await import('../src/ui/PlanetInfo.js');
 const { MobileControls } = await import('../src/ui/MobileControls.js');
 const { Codex } = await import('../src/ui/Codex.js');
 const { DockPanel } = await import('../src/ui/DockPanel.js');
+const { BasePanel } = await import('../src/ui/BasePanel.js');
 const { Toasts } = await import('../src/ui/Toasts.js');
 const { LoadingScreen } = await import('../src/ui/LoadingScreen.js');
 const { MISSIONS } = await import('../src/missions/MissionData.js');
@@ -56,7 +57,7 @@ const root = document.getElementById('app');
 const gs = new GameState();
 
 console.log('\n== UI CONSTRUCTION ==');
-let hud, menu, map, pinfo, mobile, codex, dock, toasts, loading;
+let hud, menu, map, pinfo, mobile, codex, dock, base, toasts, loading;
 check('HUD constructs', () => {
   hud = new HUD(root, { map: noop, scan: noop, missions: noop, codex: noop });
   assert(hud.root.parentElement === root);
@@ -78,6 +79,20 @@ check('DockPanel constructs', () => {
     gs, getShip: () => ({ fuel: 40, hull: 55 }),
     onSell: noop, onRefuel: noop, onRepair: noop, onBuy: noop, onMissions: noop, onUndock: noop, sound: noop,
   });
+});
+check('BasePanel constructs + renders outpost services', () => {
+  base = new BasePanel(root, {
+    gs,
+    onRest: noop, onEat: noop, onMaintain: () => ({ ok: true }), onRover: noop, onLeave: noop, sound: noop,
+    brokenRovers: () => [{ fixed: false }, { fixed: true }],
+    maintainCooldownRemaining: () => 0,
+  });
+  gs.state.survival.satiety = 60;
+  base.show('MARS OUTPOST', 'rover');
+  const text = base.modal.body.textContent;
+  assert(text.includes('LIVE / REST') && text.includes('EAT FOOD') && text.includes('MAINTAIN STATION') && text.includes('SURFACE ROVER'));
+  base.hide();
+  assert(!base.visible);
 });
 check('MobileControls constructs', () => {
   const touch = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, active: false };
