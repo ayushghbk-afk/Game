@@ -68,12 +68,19 @@ npm run build      # production build → dist/
 npm run preview    # serve the production build
 ```
 
-Tests (headless, no browser needed):
+Tests:
 
 ```bash
-node test/smoke.mjs       # world/physics/economy/missions/save — 44 checks
-node test/ui-smoke.mjs    # UI modules under jsdom — 25 checks
-node test/static-host.mjs # unbundled boot path (plain static host / CDN three)
+npm test                  # runs all of the following
+
+node test/smoke.mjs         # world/physics/economy/missions/save — 44 checks
+node test/ui-smoke.mjs      # UI modules under jsdom — 25 checks
+node test/static-host.mjs   # unbundled boot path (plain static host / CDN three)
+node test/css-input-layers.mjs # pointer-events layering (invisible-overlay guard)
+node test/modal-state.mjs   # modal bookkeeping / ESC-close regression (jsdom)
+node test/browser-clicks.mjs # real-browser click test — runs when a Chromium/
+                              # Chrome binary is available (CHROME_PATH),
+                              # otherwise skips gracefully
 ```
 
 ## DEPLOY TO GITHUB PAGES

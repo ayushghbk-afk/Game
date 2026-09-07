@@ -31,6 +31,12 @@ export class ShipController {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) { if (['Space'].includes(e.code)) e.preventDefault(); return; }
       this.keys.add(e.code);
+      // ESC is the master key — it must ALWAYS reach the pause/modal
+      // handler, even while `enabled` is false (paused or a modal open).
+      // Gating it like the other keys made the game impossible to
+      // unpause/close-panels from the keyboard: the user pressed ESC and
+      // nothing happened, which reads as "the controls are dead".
+      if (e.code === 'Escape') { this.emit('pause'); return; }
       if (!this.enabled) return;
       switch (e.code) {
         case 'KeyE': this.emit('interact'); break;
@@ -42,7 +48,6 @@ export class ShipController {
         case 'KeyV': this.emit('camera'); break;
         case 'KeyH': this.emit('help'); break;
         case 'KeyJ': this.emit('missions'); break;
-        case 'Escape': this.emit('pause'); break;
         case 'Space': e.preventDefault(); break;
       }
       if (e.code.startsWith('Arrow')) e.preventDefault();
