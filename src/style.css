@@ -658,8 +658,42 @@ input.input, select.input {
 .modal.vab .modal-body { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .vab-grid {
   flex: 1; display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.55fr) minmax(0, 0.85fr);
   gap: 12px; overflow: hidden; margin-top: 12px;
+}
+
+/* ---------- 3D assembly viewport ---------- */
+.vab-viewport { padding: 0; overflow: hidden; }
+.vab-view-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px 8px; flex: none;
+}
+.vab-view-head .vab-col-title { margin-bottom: 0; flex: 1; }
+.vab-sym {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; letter-spacing: 0.18em; color: var(--dim); cursor: pointer;
+}
+.vab-sym input { accent-color: var(--accent); cursor: pointer; }
+.vab-canvas {
+  flex: 1; width: 100%; min-height: 0; display: block;
+  touch-action: none; cursor: grab;
+  background: radial-gradient(ellipse at 50% 30%, #0d1a30 0%, #050a16 70%);
+}
+.vab-canvas:active { cursor: grabbing; }
+.vab-hint {
+  padding: 7px 12px; font-size: 10px; line-height: 1.5;
+  border-top: 1px solid rgba(110, 180, 255, 0.12); flex: none;
+}
+.vab-tools {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  padding: 8px 12px 11px; flex: none;
+  border-top: 1px solid rgba(110, 180, 255, 0.12);
+  min-height: 44px;
+}
+.vab-tools .btn { padding: 4px 9px; min-width: 30px; }
+.vab-sel-name {
+  flex: 1; font-size: 11px; color: var(--accent2);
+  letter-spacing: 0.1em; min-width: 90px;
 }
 .vab-col {
   background: rgba(6, 13, 28, 0.7); border: 1px solid var(--panel-border);
@@ -769,5 +803,8 @@ input.input, select.input {
   .menu-browser { height: min(58vh, 460px); }
   .vab-grid { grid-template-columns: 1fr; overflow-y: auto; }
   .vab-col { max-height: 320px; }
+  /* The 3D pad is the point of the screen — give it the room on phones. */
+  .vab-viewport { max-height: none; height: 58vh; order: -1; }
+  .vab-canvas { min-height: 240px; }
   .modal.vab .modal-panel { height: 94vh; }
 }

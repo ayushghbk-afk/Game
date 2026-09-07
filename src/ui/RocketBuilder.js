@@ -10,8 +10,13 @@
 import { el, clearChildren, makeModal } from '../utils/UI.js';
 import {
   ROCKET_PARTS, PART_CATEGORIES, getPart, analyzeDesign,
-  starterDesign, sanitizeDesign, exportDesign, EARTH_ORBIT_DV
+  starterDesign, EARTH_ORBIT_DV
 } from '../rockets/RocketParts.js';
+import {
+  upgradeDesign, emptyDesign, sanitizeDesign2, exportDesign2,
+  derivedStages, structuralIssues, designBounds, findPart
+} from '../rockets/RocketDesign.js';
+import { BuilderScene } from '../rockets/BuilderScene.js';
 
 const fmt = (n, d = 1) => (Math.round(n * 10 ** d) / 10 ** d).toLocaleString();
 
@@ -35,10 +40,33 @@ export class RocketBuilder {
     if (!this.design) this.design = this._loadActiveOrStarter();
     this.modal.root.classList.remove('hidden');
     this.render();
+    this._startLoop();
   }
   hide() {
     this.modal.root.classList.add('hidden');
+    this._stopLoop();
+    this.builder?.dispose();
+    this.builder = null;
     this.hooks.onClose?.();
+  }
+
+  _startLoop() {
+    if (this._raf) return;
+    const tick = () => {
+      // Stop as soon as there is nothing to draw — a hidden panel, or a
+      // browser with no WebGL — so we never spin a pointless frame loop.
+      if (!this.builder || this.modal.root.classList.contains('hidden')) {
+        this._raf = null;
+        return;
+      }
+      this.builder.render();
+      this._raf = requestAnimationFrame(tick);
+    };
+    this._raf = requestAnimationFrame(tick);
+  }
+  _stopLoop() {
+    if (this._raf) cancelAnimationFrame(this._raf);
+    this._raf = null;
   }
   get visible() { return !this.modal.root.classList.contains('hidden'); }
 
@@ -51,8 +79,9 @@ export class RocketBuilder {
   _loadActiveOrStarter() {
     const store = this._store();
     const active = store.designs.find(d => d.id === store.active);
-    if (active) return JSON.parse(JSON.stringify(active.design));
-    return starterDesign();
+    // Older careers hold v1 linear stacks — upgrade them to 3D placements.
+    if (active) return upgradeDesign(JSON.parse(JSON.stringify(active.design)));
+    return upgradeDesign(starterDesign());
   }
 
   // ================================================================ render
@@ -74,45 +103,128 @@ export class RocketBuilder {
   }
 
   // ---------------------------------------------------------------- BUILD
+  // ---------------------------------------------------------------- BUILD
   _renderBuild(b) {
-    const analysis = analyzeDesign(this.design);
+    const analysis = this._analyze();
     const grid = el('div', 'vab-grid');
 
     grid.appendChild(this._catalogue());
-    grid.appendChild(this._stack(analysis));
+    grid.appendChild(this._viewport());
     grid.appendChild(this._readout(analysis));
     b.appendChild(grid);
+    b.appendChild(this._actionBar(analysis));
 
-    // ---- bottom action bar ----
-    const bar = el('div', 'vab-bar');
-    const nameIn = el('input', 'input vab-name');
-    nameIn.value = this.design.name || 'Untitled rocket';
-    nameIn.maxLength = 48;
-    nameIn.addEventListener('change', () => { this.design.name = nameIn.value.trim() || 'Untitled rocket'; });
-    bar.appendChild(nameIn);
+    // The WebGL scene must be created AFTER the canvas is in the document,
+    // so it can measure itself.
+    requestAnimationFrame(() => this._mountScene());
+  }
 
-    const save = el('button', 'btn', '💾 SAVE');
-    save.addEventListener('click', () => this._saveDesign());
+  /** Re-run the analysis, folding in 3D-only structural problems. */
+  _analyze() {
+    const a = analyzeDesign(this.design);
+    const issues = structuralIssues(this.design);
+    // Floating parts are a hard error: the flight model cannot fly them.
+    a.errors = [...a.errors, ...issues];
+    a.valid = a.errors.length === 0;
+    a.orbitCapable = a.valid && a.deltaV >= EARTH_ORBIT_DV && a.twr >= 1.15;
+    return a;
+  }
 
-    const exp = el('button', 'btn', '⤓ EXPORT');
-    exp.addEventListener('click', () => this._exportFile());
+  _viewport() {
+    const col = el('div', 'vab-col vab-viewport');
+    const head = el('div', 'vab-view-head');
+    head.appendChild(el('div', 'vab-col-title', '3D ASSEMBLY'));
 
-    const imp = el('button', 'btn', '⤒ IMPORT');
-    imp.addEventListener('click', () => this._importFile());
+    const symWrap = el('label', 'vab-sym');
+    const sym = el('input');
+    sym.type = 'checkbox';
+    sym.checked = this._symmetry !== false;
+    sym.addEventListener('change', () => {
+      this._symmetry = sym.checked;
+      this.builder?.setSymmetry(sym.checked);
+    });
+    symWrap.append(sym, document.createTextNode(' SYMMETRY'));
+    head.appendChild(symWrap);
+    col.appendChild(head);
 
-    const share = el('button', 'btn', '☁ SHARE');
-    share.addEventListener('click', () => this._share());
+    const canvas = el('canvas', 'vab-canvas');
+    this._canvas = canvas;
+    col.appendChild(canvas);
 
-    const clear = el('button', 'btn btn-danger', 'CLEAR');
-    clear.addEventListener('click', () => { this.design = { version: 1, name: 'New rocket', parts: [] }; this.render(); });
+    col.appendChild(el('div', 'vab-hint dim',
+      'Tap a part to add it · drag parts to move and snap · drag empty space to orbit · pinch or scroll to zoom'));
 
-    const launch = el('button', 'btn btn-primary vab-launch', '🚀 LAUNCH FROM EARTH');
-    launch.disabled = !analysis.valid;
-    if (!analysis.valid) launch.classList.add('disabled');
-    launch.addEventListener('click', () => this._launch(analysis));
+    // selection toolbar (delete / mirror / nudge)
+    const tools = el('div', 'vab-tools');
+    this._toolsEl = tools;
+    col.appendChild(tools);
+    this._renderTools(null);
+    return col;
+  }
 
-    bar.append(save, exp, imp, share, clear, launch);
-    b.appendChild(bar);
+  _renderTools(uid) {
+    const t = this._toolsEl;
+    if (!t) return;
+    clearChildren(t);
+    if (!uid) {
+      t.appendChild(el('span', 'dim tiny', 'No part selected'));
+      return;
+    }
+    const p = findPart(this.design, uid);
+    const part = p && getPart(p.id);
+    if (!part) return;
+    t.appendChild(el('span', 'vab-sel-name', part.name));
+    const mk = (label, title, fn, cls) => {
+      const btn = el('button', 'btn btn-small ' + (cls || ''), label);
+      btn.title = title;
+      btn.addEventListener('click', () => { fn(); this._afterChange(); });
+      t.appendChild(btn);
+    };
+    mk('▲', 'Move up', () => this.builder?.nudgeSelected(0, 0.25, 0));
+    mk('▼', 'Move down', () => this.builder?.nudgeSelected(0, -0.25, 0));
+    mk('◀', 'Move left', () => this.builder?.nudgeSelected(-0.25, 0, 0));
+    mk('▶', 'Move right', () => this.builder?.nudgeSelected(0.25, 0, 0));
+    mk('⇋', 'Mirror to the opposite side', () => this.builder?.mirrorSelected());
+    mk('✕', 'Delete this part', () => this.builder?.deleteSelected(), 'btn-danger');
+  }
+
+  _mountScene() {
+    if (!this._canvas || !this._canvas.isConnected) return;
+    this.builder?.dispose();
+    try {
+      this.builder = new BuilderScene(this._canvas, this.design, {
+        onChange: () => this._afterChange(),
+        onSelect: (uid) => this._renderTools(uid),
+        sound: (k) => this.hooks.sound?.(k)
+      });
+      this.builder.setSymmetry(this._symmetry !== false);
+      this.builder.resize();
+      if (!this._resizeBound) {
+        this._resizeBound = () => this.builder?.resize();
+        window.addEventListener('resize', this._resizeBound);
+      }
+      this._startLoop();
+    } catch (e) {
+      // WebGL can be unavailable (headless tests, blocked GPU) — the builder
+      // must still be usable through the parts list and readout.
+      console.warn('3D builder unavailable', e);
+      this._canvas.replaceWith(el('div', 'empty-state dim',
+        '3D preview unavailable in this browser — parts and analysis still work.'));
+    }
+  }
+
+  /** Called whenever the design changes: refresh the readout in place. */
+  _afterChange() {
+    const a = this._analyze();
+    const fresh = this._readout(a);
+    this._readoutEl?.replaceWith(fresh);
+    this._readoutEl = fresh;
+    const launch = this.modal.body.querySelector('.vab-launch');
+    if (launch) {
+      launch.disabled = !a.valid;
+      launch.classList.toggle('disabled', !a.valid);
+    }
+    this._renderTools(this.builder?.selected || null);
   }
 
   _catalogue() {
@@ -132,7 +244,7 @@ export class RocketBuilder {
 
     const list = el('div', 'vab-part-list');
     for (const p of ROCKET_PARTS.filter(p => p.cat === this.category)) {
-      const row = el('div', 'part-row');
+      const row = el('div', 'part-row clickable');
       const spec = [];
       if (p.mass) spec.push(`${p.mass} t`);
       if (p.fuel) spec.push(`${p.fuel} t fuel`);
@@ -147,8 +259,14 @@ export class RocketBuilder {
         </div>
         <div class="pr-cost">${p.cost.toLocaleString()} CR</div>`;
       const add = el('button', 'btn btn-small btn-primary', '+');
-      add.title = 'Add to the top of the stack';
-      add.addEventListener('click', () => this._addPart(p.id));
+      add.title = 'Add to the rocket, then drag it into place';
+      const place = () => {
+        if (this.builder) { this.builder.beginPlace(p.id); this.builder.commitHeld(); }
+        else this._addWithoutScene(p.id);
+        this._afterChange();
+      };
+      add.addEventListener('click', (e) => { e.stopPropagation(); place(); });
+      row.addEventListener('click', place);
       row.appendChild(add);
       list.appendChild(row);
     }
@@ -156,54 +274,57 @@ export class RocketBuilder {
     return col;
   }
 
-  _stack(analysis) {
-    const col = el('div', 'vab-col vab-stack');
-    col.appendChild(el('div', 'vab-col-title', 'STACK — bottom to top'));
-
-    const list = el('div', 'vab-stack-list');
-    const parts = this.design.parts;
-    if (!parts.length) {
-      list.appendChild(el('div', 'empty-state dim',
-        'Empty pad.<br>Start with an engine, add tanks, then a command pod on top. Or press LOAD STARTER below.'));
-    }
-    let stageNo = 1;
-    parts.forEach((entry, i) => {
-      const p = getPart(entry.id);
-      if (!p) return;
-      const row = el('div', 'stack-row' + (p.stage ? ' decoupler' : ''));
-      const label = p.stage ? `— STAGE ${stageNo++} SEPARATION —` : p.name;
-      row.appendChild(el('div', 'sr-name', label + (entry.qty > 1 ? ` ×${entry.qty}` : '')));
-      const ctl = el('div', 'sr-ctl');
-      const mk = (txt, title, fn, cls) => {
-        const btn = el('button', 'btn btn-small ' + (cls || ''), txt);
-        btn.title = title;
-        btn.addEventListener('click', () => { fn(); this.render(); });
-        return btn;
-      };
-      ctl.append(
-        mk('−', 'Remove one', () => this._changeQty(i, -1)),
-        mk('+', 'Add one', () => this._changeQty(i, 1)),
-        mk('▲', 'Move up the stack', () => this._move(i, 1)),
-        mk('▼', 'Move down the stack', () => this._move(i, -1)),
-        mk('✕', 'Delete', () => { parts.splice(i, 1); }, 'btn-danger')
-      );
-      row.appendChild(ctl);
-      list.appendChild(row);
+  /** Fallback when WebGL is unavailable: stack the part on top. */
+  _addWithoutScene(partId) {
+    const part = getPart(partId);
+    if (!part) return;
+    const b = designBounds(this.design);
+    this.design.parts.push({
+      uid: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id: partId,
+      pos: [0, (this.design.parts.length ? b.maxY : 0) + (part.h || 0.6) / 2, 0],
+      radial: false
     });
-    col.appendChild(list);
+  }
 
-    const quick = el('div', 'btn-row');
-    const starter = el('button', 'btn btn-small', 'LOAD STARTER');
-    starter.addEventListener('click', () => { this.design = starterDesign(); this.render(); });
-    const dec = el('button', 'btn btn-small', '+ DECOUPLER');
-    dec.addEventListener('click', () => this._addPart('dec-stack'));
-    quick.append(starter, dec);
-    col.appendChild(quick);
-    return col;
+  _actionBar(analysis) {
+    const bar = el('div', 'vab-bar');
+    const nameIn = el('input', 'input vab-name');
+    nameIn.value = this.design.name || 'Untitled rocket';
+    nameIn.maxLength = 48;
+    nameIn.addEventListener('change', () => { this.design.name = nameIn.value.trim() || 'Untitled rocket'; });
+    bar.appendChild(nameIn);
+
+    const mk = (label, cls, fn) => {
+      const btn = el('button', 'btn ' + (cls || ''), label);
+      btn.addEventListener('click', fn);
+      bar.appendChild(btn);
+      return btn;
+    };
+    mk('💾 SAVE', '', () => this._saveDesign());
+    mk('⤓ EXPORT', '', () => this._exportFile());
+    mk('⤒ IMPORT', '', () => this._importFile());
+    mk('☁ SHARE', '', () => this._share());
+    mk('CLEAR', 'btn-danger', () => {
+      this.design = emptyDesign('New rocket');
+      this.builder?.setDesign(this.design);
+      this._afterChange();
+    });
+    mk('STARTER', '', () => {
+      this.design = upgradeDesign(starterDesign());
+      this.builder?.setDesign(this.design);
+      this._afterChange();
+    });
+
+    const launch = mk('🚀 LAUNCH FROM EARTH', 'btn-primary vab-launch', () => this._launch(this._analyze()));
+    launch.disabled = !analysis.valid;
+    if (!analysis.valid) launch.classList.add('disabled');
+    return bar;
   }
 
   _readout(a) {
     const col = el('div', 'vab-col vab-readout');
+    this._readoutEl = col;
     col.appendChild(el('div', 'vab-col-title', 'FLIGHT ANALYSIS'));
 
     const stat = (k, v, cls) => {
@@ -278,7 +399,7 @@ export class RocketBuilder {
   // ---------------------------------------------------------------- persist
   _saveDesign() {
     const store = this._store();
-    const analysis = analyzeDesign(this.design);
+    const analysis = this._analyze();
     const id = this.design.id || ('r' + Date.now().toString(36));
     this.design.id = id;
     const record = {
@@ -308,7 +429,7 @@ export class RocketBuilder {
       const acts = el('div', 'rc-actions');
       const load = el('button', 'btn btn-small btn-primary', 'EDIT');
       load.addEventListener('click', () => {
-        this.design = JSON.parse(JSON.stringify(d.design));
+        this.design = upgradeDesign(JSON.parse(JSON.stringify(d.design)));
         this.design.id = d.id;
         store.active = d.id;
         this.tab = 'build';
@@ -316,11 +437,11 @@ export class RocketBuilder {
       });
       const launch = el('button', 'btn btn-small', '🚀 LAUNCH');
       launch.addEventListener('click', () => {
-        this.design = JSON.parse(JSON.stringify(d.design));
-        this._launch(analyzeDesign(this.design));
+        this.design = upgradeDesign(JSON.parse(JSON.stringify(d.design)));
+        this._launch(this._analyze());
       });
       const share = el('button', 'btn btn-small', '☁ SHARE');
-      share.addEventListener('click', () => { this.design = JSON.parse(JSON.stringify(d.design)); this._share(); });
+      share.addEventListener('click', () => { this.design = upgradeDesign(JSON.parse(JSON.stringify(d.design))); this._share(); });
       const del = el('button', 'btn btn-small btn-danger', 'DELETE');
       del.addEventListener('click', () => {
         store.designs = store.designs.filter(x => x.id !== d.id);
@@ -361,7 +482,8 @@ export class RocketBuilder {
         const imp = el('button', 'btn btn-small btn-primary', '⤓ IMPORT');
         imp.addEventListener('click', () => {
           try {
-            this.design = sanitizeDesign(r.design);
+            this.design = sanitizeDesign2(r.design);
+            this.builder?.setDesign(this.design);
             this.tab = 'build';
             this.hooks.toast?.('IMPORTED', `"${this.design.name}" loaded into the workshop.`, 'success');
             this.render();
@@ -384,7 +506,7 @@ export class RocketBuilder {
       return;
     }
     try {
-      const a = analyzeDesign(this.design);
+      const a = this._analyze();
       await be.publishRocket({
         name: this.design.name, design: this.design,
         stats: { deltaV: Math.round(a.deltaV), mass: a.wetMass, cost: a.cost, reach: a.reach },
@@ -397,7 +519,7 @@ export class RocketBuilder {
   }
 
   _exportFile() {
-    const json = exportDesign(this.design);
+    const json = exportDesign2(this.design);
     const blob = new Blob([json], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -417,7 +539,8 @@ export class RocketBuilder {
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          this.design = sanitizeDesign(String(reader.result));
+          this.design = sanitizeDesign2(String(reader.result));
+          this.builder?.setDesign(this.design);
           this.tab = 'build';
           this.hooks.toast?.('IMPORTED', `"${this.design.name}" loaded.`, 'success');
           this.render();

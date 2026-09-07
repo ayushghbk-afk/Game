@@ -9,6 +9,8 @@
 // project URL + anon key once in ACCOUNT → CONNECT SERVER, and they are kept
 // in localStorage. Until then the whole game runs in GUEST mode against
 // browser storage, and every cloud call resolves to a friendly error.
+import { DEFAULT_BACKEND } from './backendConfig.js';
+
 const CRED_KEY = 'solar-odyssey-backend-v1';
 const SESSION_KEY = 'solar-odyssey-session-v1';
 
@@ -19,7 +21,13 @@ function ls() {
   } catch { return null; }
 }
 
-/** Optional build-time defaults (Vite env), so you can ship keys if you want. */
+/**
+ * Where the game connects by default. Priority:
+ *   1. build-time env (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)
+ *   2. the shipped default project (src/net/backendConfig.js)
+ * A player-entered project (ACCOUNT → CONNECT SERVER) overrides both at
+ * runtime — see _restore().
+ */
 function envDefaults() {
   try {
     const env = import.meta.env || {};
@@ -27,6 +35,9 @@ function envDefaults() {
       return { url: env.VITE_SUPABASE_URL, key: env.VITE_SUPABASE_ANON_KEY };
     }
   } catch { /* no bundler env */ }
+  if (DEFAULT_BACKEND?.url && DEFAULT_BACKEND?.key) {
+    return { url: DEFAULT_BACKEND.url.replace(/\/+$/, ''), key: DEFAULT_BACKEND.key };
+  }
   return null;
 }
 
@@ -76,13 +87,16 @@ export class Backend {
     return true;
   }
 
+  /** Forget a custom project and fall back to the shipped default server. */
   disconnect() {
     this.session = null;
     this.profile = null;
     this.store?.removeItem(SESSION_KEY);
     this.store?.removeItem(CRED_KEY);
-    this.url = this.key = null;
-    this.emit('config', false);
+    const env = envDefaults();
+    this.url = env?.url || null;
+    this.key = env?.key || null;
+    this.emit('config', this.configured);
     this.emit('auth', null);
   }
 

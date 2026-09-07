@@ -125,6 +125,19 @@ export const G0 = 9.80665;         // m/s² — for the rocket equation
 export const EARTH_ORBIT_DV = 9400; // m/s to low Earth orbit (incl. losses)
 export const TWR_MIN = 1.15;        // must beat gravity with margin
 
+/**
+ * Hook installed by RocketDesign.js so analyzeDesign() understands v2
+ * (3D placement) designs without this module importing that one — the two
+ * would otherwise be circular. Given a v2 design it returns an array of
+ * stages, each an array of part definitions.
+ */
+let stageResolver = null;
+export function setStageResolver(fn) { stageResolver = fn; }
+export function isPlacementDesign(design) {
+  return design?.version === 2 && Array.isArray(design.parts) &&
+    design.parts.length > 0 && Array.isArray(design.parts[0]?.pos);
+}
+
 /** Expand a design's { id, qty } list into a flat part list, bottom → top. */
 export function expandParts(design) {
   const out = [];
@@ -160,7 +173,10 @@ function sum(list, key) { return list.reduce((a, p) => a + (p[key] || 0), 0); }
  * promises is exactly what the flight delivers.
  */
 export function analyzeDesign(design) {
-  const parts = expandParts(design);
+  // v2 designs place parts in 3D, so their staging comes from geometry.
+  const placementStages = (isPlacementDesign(design) && stageResolver)
+    ? stageResolver(design) : null;
+  const parts = placementStages ? placementStages.flat() : expandParts(design);
   const errors = [];
   const warnings = [];
 
@@ -193,7 +209,7 @@ export function analyzeDesign(design) {
 
   // Delta-v, staged. Each stage burns only the fuel it carries while
   // hauling everything above it.
-  const stages = stagesOf(parts);
+  const stages = placementStages || stagesOf(parts);
   let deltaV = 0;
   const stageInfo = [];
   let massAbove = 0;

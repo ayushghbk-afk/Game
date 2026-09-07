@@ -201,13 +201,35 @@ play time and last-saved time. Each career lives in its own slot (6 max), so
 starting a new expedition never erases the old one. **EXPORT** writes a career
 file you can back up or hand to a friend; **IMPORT** reads one back.
 
-### Rocket Workshop
+### Rocket Workshop — 3D drag-and-drop assembly
 
-**Main menu → 🚀 ROCKET WORKSHOP** (also on the pause menu). Stack parts bottom
-to top, drop in decouplers to make stages, and watch the analysis panel: it
+**Main menu → 🚀 ROCKET WORKSHOP** (also on the pause menu). The workshop is a
+real 3D launch pad you can orbit around, not a flat parts list:
+
+| Action | Mouse | Touch |
+| --- | --- | --- |
+| Add a part | click it in the palette | tap it in the palette |
+| Move a part | drag it | drag it |
+| Orbit the pad | drag empty space | drag empty space |
+| Zoom | scroll wheel | pinch |
+| Select / edit | click a part | tap a part |
+
+Parts **snap to attachment nodes** — green dots appear while you drag, and the
+nearest one turns amber when it will catch. Stack them nose-to-tail for a
+conventional rocket, or push one against the *side* of a tank to strap on a
+booster. With **SYMMETRY** on, side-mounted boosters automatically get a twin
+on the opposite side so the vehicle stays balanced. The selection toolbar
+nudges, mirrors (⇋) or deletes (✕) the highlighted part.
+
+Staging is read from the geometry, not from list order: every decoupler splits
+the stack, and strap-on boosters burn with the stage they sit beside. The
+rocket you watch lift off is assembled from exactly the parts you placed.
+
+Watch the analysis panel as you build: it
 computes real mass, thrust, mass-flow-weighted Isp, thrust-to-weight and
 per-stage delta-v via the rocket equation, and refuses to launch anything that
-cannot fly. Reaching orbit needs **9,400 m/s of delta-v and TWR ≥ 1.15** — the
+cannot fly — including 3D-only faults like a part left floating in mid-air.
+Reaching orbit needs **9,400 m/s of delta-v and TWR ≥ 1.15** — the
 same numbers the flight simulation uses, so the readout never lies.
 
 **🚀 LAUNCH FROM EARTH** flies the ascent for real: countdown, lift-off, gravity

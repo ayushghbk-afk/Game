@@ -50,6 +50,7 @@ export function freshState() {
              repairs: 0, caches: 0, deliveries: 0, evas: 0 },
     settings: { ...DEFAULT_SETTINGS },
     careerName: null,    // display name in the careers list
+    careerStage: 'first-launch', // first-launch → explore (drives the intro flow)
     ship: null,          // filled by Game on save
     playTime: 0
   };

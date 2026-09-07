@@ -23,6 +23,7 @@ globalThis.location = dom.window.location;
 globalThis.Blob = dom.window.Blob;
 globalThis.FileReader = dom.window.FileReader;
 globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(performance.now()), 16);
+globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 globalThis.devicePixelRatio = 1;
 globalThis.innerWidth = 1280;
 globalThis.innerHeight = 720;
@@ -418,15 +419,28 @@ function mockFetch(routes) {
   };
   return calls;
 }
-await check('an unconfigured backend fails with a helpful message, never a crash', async () => {
+await check('the game ships with a default server configured', () => {
   localStorage.clear();
   const be = new Backend();
-  assert(!be.configured && !be.signedIn);
-  let msg = '';
-  try { await be.listSaves(); } catch (e) { msg = e.message; }
+  assert(be.configured, 'no default backend — online features would be dead on arrival');
+  assert(/^https:\/\//.test(be.url), 'default URL malformed: ' + be.url);
+  assert(!be.signedIn, 'nobody should be signed in by default');
+});
+await check('a signed-out player gets a helpful error, never a crash', async () => {
+  localStorage.clear();
+  const be = new Backend();
   assert((await be.listSaves()).length === 0, 'listSaves should be empty, not throw');
+  let msg = '';
   try { await be.pushSave(0, 'x', {}); } catch (e) { msg = e.message; }
   assert(/sign in/i.test(msg), 'unhelpful error: ' + msg);
+});
+await check('with no server at all, calls explain how to connect one', async () => {
+  localStorage.clear();
+  const be = new Backend();
+  be.url = null; be.key = null;              // simulate a build with no default
+  let msg = '';
+  try { await be._fetch('/rest/v1/servers'); } catch (e) { msg = e.message; }
+  assert(/connect server/i.test(msg), 'unhelpful error: ' + msg);
 });
 await check('configure() validates the URL and persists credentials', () => {
   localStorage.clear();
@@ -484,12 +498,16 @@ await check('a network failure surfaces as a readable error', async () => {
   try { await be.listServers('all'); } catch (e) { msg = e.message; }
   assert(/cannot reach the server/i.test(msg), 'raw network error leaked: ' + msg);
 });
-await check('disconnect wipes credentials and session', () => {
+await check('disconnect drops a custom project back to the default server', () => {
+  localStorage.clear();
   const be = new Backend();
-  be.configure('https://demo.supabase.co', 'anon');
+  const defaultUrl = be.url;
+  be.configure('https://custom.supabase.co', 'custom-key');
+  assert(be.url === 'https://custom.supabase.co', 'custom project not applied');
   be.disconnect();
-  assert(!be.configured && !be.signedIn);
-  assert(!new Backend().configured, 'credentials survived disconnect');
+  assert(!be.signedIn, 'session survived disconnect');
+  assert(be.url === defaultUrl, 'did not fall back to the default server');
+  assert(new Backend().url === defaultUrl, 'custom credentials survived disconnect');
 });
 
 // =====================================================================
@@ -697,6 +715,7 @@ await check('a guest can rename their commander and it persists', () => {
 await check('the connect form validates before saving junk credentials', () => {
   localStorage.clear();
   const be = new Backend();
+  const original = be.url;
   const panel = new AccountPanel(root, {
     backend: be, identity: () => ({ name: 'G' }), setIdentity: () => {}, toast: () => {}, onChanged: () => {}
   });
@@ -708,7 +727,7 @@ await check('the connect form validates before saving junk credentials', () => {
   inputs[1].value = 'key';
   panel.modal.body.querySelectorAll('button').forEach(b => { if (b.textContent === 'CONNECT') b.click(); });
   assert(panel.modal.body.querySelector('.form-status.error'), 'bad URL was not rejected');
-  assert(!be.configured, 'junk credentials were stored');
+  assert(be.url === original, 'junk credentials overwrote the server');
 });
 
 // =====================================================================
@@ -723,13 +742,17 @@ await check('the workshop opens with a flightworthy starter rocket', () => {
   assert(vab.modal.body.querySelector('.ro-msg.ok'), 'starter should be flightworthy');
   assert(!vab.modal.body.querySelector('.vab-launch').disabled, 'launch button disabled for a valid rocket');
 });
-await check('parts can be added and the analysis updates live', () => {
+await check('parts can be added from the palette and mass goes up', () => {
   const g = new GameState();
   const vab = new RocketBuilder(root, { gs: g, backend: new Backend(), toast: () => {}, onLaunch: () => {} });
   vab.show();
   const before = analyzeDesign(vab.design).wetMass;
+  const countBefore = vab.design.parts.length;
   vab.category = 'fuel'; vab.render();
-  vab.modal.body.querySelector('.part-row .btn-primary').click();
+  const addBtn = vab.modal.body.querySelector('.vab-part-list .part-row .btn-primary');
+  assert(addBtn, 'no add button in the palette');
+  addBtn.click();
+  assert(vab.design.parts.length === countBefore + 1, 'part was not placed');
   assert(analyzeDesign(vab.design).wetMass > before, 'adding a tank did not add mass');
 });
 await check('clearing the stack blocks launch and explains why', () => {
@@ -773,13 +796,16 @@ await check('an affordable, valid rocket launches', () => {
     gs: g, backend: new Backend(), toast: () => {}, onLaunch: (d, a) => { got = { d, a }; }
   });
   vab.show();
-  vab.modal.body.querySelector('.vab-launch').click();
+  vab._launch(vab._analyze());
   assert(got && got.a.orbitCapable, 'launch did not fire');
   assert(got.d.parts.length > 0, 'design not handed over');
+  assert(got.d.version === 2 && got.d.parts[0].pos, 'a v1 design was handed to the flight');
 });
 await check('the SHARED tab degrades gracefully with no server', () => {
   const g = new GameState();
-  const vab = new RocketBuilder(root, { gs: g, backend: new Backend(), toast: () => {}, onLaunch: () => {} });
+  const be = new Backend();
+  be.url = null; be.key = null;             // a build with no server at all
+  const vab = new RocketBuilder(root, { gs: g, backend: be, toast: () => {}, onLaunch: () => {} });
   vab.show();
   vab.tab = 'shared'; vab.render();
   const t = vab.modal.body.textContent;
@@ -968,5 +994,222 @@ await check('the astronaut walks in the direction it faces', () => {
 });
 
 console.log('\n=====================================');
+
+// =====================================================================
+console.log('\n== 3D ROCKET DESIGN (drag-and-drop model) ==');
+const RD = await import('../src/rockets/RocketDesign.js');
+
+await check('a v1 linear stack upgrades into 3D placements', () => {
+  const v1 = starterDesign();
+  const v2 = RD.upgradeDesign(v1);
+  assert(v2.version === 2, 'version not bumped');
+  assert(v2.parts.every(p => Array.isArray(p.pos) && p.pos.length === 3), 'parts have no 3D position');
+  assert(v2.parts.every(p => p.uid), 'parts have no uid');
+  // The upgraded stack must sit ON the pad and go up, not through the floor.
+  const ys = v2.parts.map(p => p.pos[1]);
+  assert(Math.min(...ys) > 0, 'part centre below the pad');
+  assert(new Set(v2.parts.map(p => p.uid)).size === v2.parts.length, 'duplicate uids');
+});
+
+await check('upgrading twice is stable (no drift, no duplication)', () => {
+  const once = RD.upgradeDesign(starterDesign());
+  const twice = RD.upgradeDesign(JSON.parse(JSON.stringify(once)));
+  assert(twice.parts.length === once.parts.length, 'part count changed on re-upgrade');
+  assert(twice.parts.every((p, i) => p.pos.every((n, j) => n === once.parts[i].pos[j])),
+    'positions drifted on re-upgrade');
+});
+
+await check('a dropped part snaps to the top node of the part below', () => {
+  const d = RD.emptyDesign('snap');
+  RD.addPart(d, 'tank-m', [0, 1, 0]);
+  const below = d.parts[0];
+  const topY = below.pos[1] + RD.partHeight(below) / 2;
+  // Aim sloppily above it — the snap should tidy it up.
+  const drop = RD.resolveDrop(d, 'tank-m', 0.3, topY + 1.0, 0.2);
+  assert(drop.snapped, 'no snap happened');
+  assert(Math.abs(drop.pos[0]) < 0.001 && Math.abs(drop.pos[2]) < 0.001, 'snap did not centre the part');
+  assert(Math.abs(drop.pos[1] - (topY + RD.partHeight(below) / 2)) < 0.001, 'stacked at the wrong height');
+});
+
+await check('a part dropped far from everything is placed freely on the pad', () => {
+  const d = RD.emptyDesign('free');
+  RD.addPart(d, 'tank-m', [0, 1, 0]);
+  const drop = RD.resolveDrop(d, 'tank-m', 12, 0, 12);
+  assert(!drop.snapped, 'snapped to something 12 m away');
+  assert(drop.pos[1] > 0, 'placed below the pad');
+});
+
+await check('radial drops become strap-on boosters, not stack items', () => {
+  const d = RD.emptyDesign('radial');
+  RD.addPart(d, 'tank-m', [0, 1, 0]);
+  const r = RD.partRadius(d.parts[0]);
+  const drop = RD.resolveDrop(d, 'srb-med', r + 0.4, 1, 0);
+  assert(drop.snapped && drop.radial, 'side attach did not register as radial');
+  assert(drop.pos[0] > r, 'booster ended up inside the core');
+});
+
+await check('mirroring puts a booster on the opposite side', () => {
+  const d = RD.emptyDesign('mirror');
+  RD.addPart(d, 'tank-m', [0, 1, 0]);
+  const b = RD.addPart(d, 'srb-med', [1.2, 1, 0], { radial: true });
+  const twin = RD.mirrorPart(d, b.uid);
+  assert(twin, 'mirror produced nothing');
+  assert(Math.abs(twin.pos[0] + b.pos[0]) < 0.001, 'twin is not opposite');
+  assert(twin.pos[1] === b.pos[1], 'twin is at a different height');
+  assert(twin.radial, 'twin is not radial');
+  // A part on the centreline has no opposite side.
+  assert(!RD.mirrorPart(d, d.parts[0].uid), 'mirrored an axial part');
+});
+
+await check('stages are derived from decoupler geometry, bottom to top', () => {
+  const d = RD.upgradeDesign(starterDesign());
+  const stages = RD.derivedStages(d);
+  assert(stages.length >= 2, 'starter did not split into stages');
+  const avgY = stages.map(s => s.reduce((t, p) => t + p.pos[1], 0) / s.length);
+  for (let i = 1; i < avgY.length; i++) {
+    assert(avgY[i] > avgY[i - 1], 'stages are not ordered bottom to top');
+  }
+  assert(stages.flat().length <= d.parts.length, 'staging invented parts');
+});
+
+await check('strap-on boosters join the stage they sit beside', () => {
+  const d = RD.upgradeDesign(starterDesign());
+  const before = RD.derivedStages(d).length;
+  RD.addPart(d, 'srb-med', [1.4, 1.0, 0], { radial: true });
+  const after = RD.derivedStages(d);
+  assert(after.length === before, 'a radial booster wrongly created its own stage');
+  assert(after.some(s => s.some(p => p.id === 'srb-med')), 'booster fell out of the stack');
+  // It should join a LOW stage — that is the point of a strap-on.
+  const idx = after.findIndex(s => s.some(p => p.id === 'srb-med'));
+  assert(idx === 0, 'booster joined an upper stage instead of the first');
+});
+
+await check('boosters strapped to the first stage raise lift-off thrust', () => {
+  const d = RD.upgradeDesign(starterDesign());
+  const before = analyzeDesign(d).twr;
+  for (const x of [1.4, -1.4]) RD.addPart(d, 'srb-med', [x, 1.0, 0], { radial: true });
+  const after = analyzeDesign(d).twr;
+  assert(after > before, `TWR did not improve with boosters (${before} → ${after})`);
+});
+
+await check('a floating part is reported as a structural fault', () => {
+  const d = RD.upgradeDesign(starterDesign());
+  assert(RD.structuralIssues(d).length === 0, 'the starter rocket is not sound');
+  RD.addPart(d, 'tank-m', [0, 40, 0]);
+  const issues = RD.structuralIssues(d);
+  assert(issues.length > 0, 'a part floating 40 m up was accepted');
+  assert(/floating/i.test(issues[0]), 'unhelpful fault text: ' + issues[0]);
+});
+
+await check('a rocket hovering off the pad is caught', () => {
+  const d = RD.emptyDesign('hover');
+  RD.addPart(d, 'cmd-mk1', [0, 9, 0]);
+  assert(RD.structuralIssues(d).some(t => /pad/i.test(t)), 'a hovering rocket was accepted');
+});
+
+await check('bounds frame the whole vehicle including strap-ons', () => {
+  const d = RD.upgradeDesign(starterDesign());
+  const b0 = RD.designBounds(d);
+  assert(b0.height > 0 && b0.minY >= 0, 'bad bounds: ' + JSON.stringify(b0));
+  RD.addPart(d, 'srb-med', [3, 1, 0], { radial: true });
+  assert(RD.designBounds(d).radius > b0.radius, 'bounds ignored the strap-on');
+});
+
+await check('a 3D design exports and re-imports identically', () => {
+  const d = RD.upgradeDesign(starterDesign());
+  d.name = 'Test Bird';
+  const round = RD.sanitizeDesign2(RD.exportDesign2(d));
+  assert(round.name === 'Test Bird', 'name lost');
+  assert(round.parts.length === d.parts.length, 'parts lost in the round trip');
+  assert(round.parts.every((p, i) =>
+    p.id === d.parts[i].id && p.pos.every((n, j) => n === d.parts[i].pos[j])), 'geometry changed');
+  assert(Math.round(analyzeDesign(round).deltaV) === Math.round(analyzeDesign(d).deltaV),
+    'performance changed across the round trip');
+});
+
+await check('hostile rocket files are rejected rather than crashing the builder', () => {
+  const bad = [
+    '{}', '[]', 'not json at all',
+    JSON.stringify({ design: { version: 2, parts: [] } }),
+    JSON.stringify({ design: { version: 2, parts: [{ id: 'nope', pos: [0, 0, 0] }] } }),
+    JSON.stringify({ design: { version: 2, parts: [{ id: 'cmd-mk1', pos: [0, Infinity, 0] }] } })
+  ];
+  for (const b of bad) {
+    let threw = false;
+    try { RD.sanitizeDesign2(b); } catch { threw = true; }
+    assert(threw, 'accepted junk: ' + b.slice(0, 60));
+  }
+  // Absurd coordinates are dropped, but a usable part survives.
+  const mixed = RD.sanitizeDesign2(JSON.stringify({
+    design: { version: 2, parts: [{ id: 'cmd-mk1', pos: [0, 1, 0] }, { id: 'cmd-mk1', pos: [0, 1e9, 0] }] }
+  }));
+  assert(mixed.parts.length === 1, 'a part 1000 km away was kept');
+});
+
+await check('an upgraded starter still reaches orbit after the 3D conversion', () => {
+  const a = analyzeDesign(RD.upgradeDesign(starterDesign()));
+  assert(a.valid, 'starter became invalid: ' + a.errors.join('; '));
+  assert(a.deltaV >= EARTH_ORBIT_DV, `starter lost delta-v: ${Math.round(a.deltaV)}`);
+  assert(a.twr >= 1.15, 'starter cannot lift off: TWR ' + a.twr.toFixed(2));
+});
+
+await check('deleting parts keeps the design coherent', () => {
+  const d = RD.upgradeDesign(starterDesign());
+  const n = d.parts.length;
+  assert(RD.removePart(d, d.parts[0].uid), 'delete failed');
+  assert(d.parts.length === n - 1, 'part not removed');
+  assert(!RD.findPart(d, 'nonexistent-uid'), 'found a part that does not exist');
+  assert(!RD.removePart(d, 'nonexistent-uid'), 'deleted a part that does not exist');
+});
+
+// =====================================================================
+console.log('\n== CAREER FLOW: EARTH → BUILD → LAUNCH ==');
+
+await check('a fresh career starts at the first-launch stage', () => {
+  const g = new GameState();
+  assert(g.state.careerStage === 'first-launch',
+    'new careers should open on the pad, got: ' + g.state.careerStage);
+});
+
+await check('the career stage survives a save/load round trip', () => {
+  localStorage.clear();
+  const g = new GameState();
+  g.state.careerStage = 'explore';
+  g.save(0, { name: 'Flow test' });
+  const g2 = new GameState();
+  g2.load(0);
+  assert(g2.state.careerStage === 'explore', 'career progress was lost on load');
+});
+
+
+await check('a 3D design builds a mesh that matches its own staging', async () => {
+  const { buildRocketMesh } = await import('../src/rockets/RocketMesh.js');
+  const d = RD.upgradeDesign(starterDesign());
+  RD.addPart(d, 'srb-med', [1.4, 1.0, 0], { radial: true });
+  const mesh = buildRocketMesh(d);
+  const stages = RD.derivedStages(d);
+  assert(mesh.userData.stageGroups.length === stages.length,
+    `mesh has ${mesh.userData.stageGroups.length} stages, flight model has ${stages.length}`);
+  assert(mesh.userData.height > 0, 'mesh has no height');
+  // The strap-on must be off-axis in the model, not merged into the stack.
+  let offAxis = false;
+  mesh.traverse(o => { if (o.isMesh && Math.abs(o.position.x) > 0.5) offAxis = true; });
+  assert(offAxis, 'the strap-on booster was not modelled beside the core');
+  // Staging must actually hide hardware.
+  mesh.dropStage(1);
+  assert(!mesh.userData.stageGroups[0].visible, 'dropStage did not shed the first stage');
+});
+
+await check('the flown rocket sits on the pad, never sunk through it', async () => {
+  const { buildRocketMesh } = await import('../src/rockets/RocketMesh.js');
+  // Build a design floating high up; the mesh should still be based at y=0.
+  const d = RD.emptyDesign('high');
+  RD.addPart(d, 'cmd-mk1', [0, 25, 0]);
+  const mesh = buildRocketMesh(d);
+  let minY = Infinity;
+  mesh.traverse(o => { if (o.isMesh) minY = Math.min(minY, o.position.y); });
+  assert(minY < 1, 'the rocket was modelled floating 25 m above the pad');
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

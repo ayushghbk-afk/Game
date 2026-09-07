@@ -471,7 +471,29 @@ export class Game {
     this.audio.startMusic();
     this._spawnShip(true);
     this._enterPlay();
-    this.toasts.show('WELCOME, COMMANDER', 'Mission 1: FIRST FLIGHT — leave Earth behind.', 'info', 6000);
+    // A career BEGINS ON EARTH: your first job is to design a rocket and fly
+    // it to orbit. Everything else in the solar system opens up from there.
+    this.startCareerOnEarth();
+  }
+
+  /**
+   * Opening beat of a new career: you are on the pad at Earth with a grant,
+   * and the Rocket Workshop is already open. Build → launch → orbit → explore.
+   */
+  startCareerOnEarth() {
+    this.gs.state.careerStage = 'first-launch';
+    this.toasts.show('WELCOME TO THE PROGRAM',
+      'You are on the pad at Earth. Design your first rocket in the ROCKET WORKSHOP, then LAUNCH FROM EARTH to reach orbit.',
+      'info', 9000);
+    // Give them a moment to read it, then open the workshop with the starter.
+    setTimeout(() => {
+      if (this.mode === 'space' && this.gs.state.careerStage === 'first-launch') {
+        this.openRocketBuilder();
+        this.toasts.show('TIP',
+          'Press LOAD STARTER for a rocket that already reaches orbit, or drag your own together — then 🚀 LAUNCH FROM EARTH.',
+          'info', 8000);
+      }
+    }, 1200);
   }
 
   continueGame() {
@@ -2568,6 +2590,13 @@ export class Game {
         this.toasts.show('ORBIT ACHIEVED',
           `${design.name} is in orbit. Mission payout +${payout.toLocaleString()} CR.`, 'success', 6000);
         this.audio.levelUp();
+        // First orbit unlocks the rest of the game: now go land somewhere.
+        if (this.gs.state.careerStage === 'first-launch') {
+          this.gs.state.careerStage = 'explore';
+          setTimeout(() => this.toasts.show('NEXT OBJECTIVE',
+            'You are in orbit. Target a world (T), fly to it, SCAN it (R), enter orbit (E) and press L to LAND.',
+            'info', 9000), 6200);
+        }
       } else {
         this._spawnShip(false);
         this.toasts.show('FLIGHT FAILURE', reason || 'The vehicle was lost.', 'warn', 6500);
