@@ -111,6 +111,7 @@ check('registry mirrors Game._modalRegistry (same kinds as the real code)', () =
     ship: menu.shipModal.root,
     help: menu.helpModal.root,
     codex: codex.modal.root,
+    base: document.createElement('div'),
     map: map.rootEl,
     docked: dock.modal.root,
     planetinfo: pinfo.rootEl

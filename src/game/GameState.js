@@ -17,7 +17,11 @@ export const ACHIEVEMENTS = [
   { id: 'tourist', name: 'PLANETFALL', desc: 'Land on a planet surface.' },
   { id: 'docked', name: 'HARBOR MASTER', desc: 'Dock at a space station.' },
   { id: 'watcher', name: 'THE WATCHER', desc: 'Discover a deep-space anomaly.' },
-  { id: 'far-horizons', name: 'FAR HORIZONS', desc: 'Reach Neptune.' }
+  { id: 'far-horizons', name: 'FAR HORIZONS', desc: 'Reach Neptune.' },
+  { id: 'planetfall', name: 'PLANETFALL', desc: 'Land on a planet and settle in at its outpost.' },
+  { id: 'mechanic', name: 'ROVER MECHANIC', desc: 'Repair your first broken rover on the surface.' },
+  { id: 'steward', name: 'STATION STEWARD', desc: 'Complete a maintenance routine on a planetary outpost.' },
+  { id: 'astronaut', name: 'FIELD ASTRONAUT', desc: 'Live, eat and work at a planetary outpost.' }
 ];
 
 const PLANET_IDS = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
@@ -27,7 +31,8 @@ export function freshState() {
     version: 1,
     credits: ECONOMY.startCredits,
     xp: 0,
-    resources: { iron: 0, nickel: 0, water: 0, ice: 0, rare: 0 },
+    resources: { iron: 0, nickel: 0, water: 0, ice: 0, food: 0, parts: 0, rare: 0 },
+    survival: { satiety: 100 },   // astronaut food meter (0 = starving)
     upgrades: { engine: 1, tank: 1, shield: 1, scanner: 1, cargo: 1 },
     missions: { active: 'm1', completed: [], failed: [] },
     discoveries: [],     // bodies scanned
@@ -111,6 +116,38 @@ export class GameState {
     return value;
   }
 
+  // ---- survival (astronaut food) ----
+  get satiety() { const s = this.state.survival.satiety; return Math.max(0, Math.min(100, s)); }
+  foodCount() { return this.state.resources.food || 0; }
+  /** Consume food units; restores satiety (never wastes rations when full). Returns satiety gained. */
+  eatFood(count = 1) {
+    const need = 100 - this.state.survival.satiety;
+    if (need <= 0) return 0; // already full — don't waste a ration
+    const have = this.state.resources.food || 0;
+    const neededUnits = Math.max(1, Math.ceil(need / ECONOMY.surface.satietyPerMeal));
+    const n = Math.min(have, count, neededUnits);
+    if (n <= 0) return 0;
+    this.state.resources.food -= n;
+    const gain = Math.min(need, n * ECONOMY.surface.satietyPerMeal);
+    this.state.survival.satiety += gain;
+    this.emit('cargo');
+    this.emit('survival', this.state.survival.satiety);
+    return gain;
+  }
+  /** Drain satiety over time (hunger). Returns new satiety. */
+  drainSatiety(amount) {
+    this.state.survival.satiety = Math.max(0, this.state.survival.satiety - amount);
+    this.emit('survival', this.state.survival.satiety);
+    return this.state.survival.satiety;
+  }
+  /** Consume spare parts for a job. Returns true if enough. */
+  consumeParts(n = 1) {
+    if ((this.state.resources.parts || 0) < n) return false;
+    this.state.resources.parts -= n;
+    this.emit('cargo');
+    return true;
+  }
+
   // ---- discoveries / achievements ----
   discover(bodyId) {
     if (!this.state.discoveries.includes(bodyId)) {
@@ -148,7 +185,16 @@ export class GameState {
   load() {
     const data = SaveSystem.load();
     if (data) {
-      this.state = { ...freshState(), ...data, settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) } };
+      const fresh = freshState();
+      this.state = {
+        ...fresh,
+        ...data,
+        // deep-merge so saves from before the survival/economy expansion
+        // keep their old fields while picking up food/parts + satiety defaults
+        resources: { ...fresh.resources, ...(data.resources || {}) },
+        survival: { ...fresh.survival, ...(data.survival || {}) },
+        settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) }
+      };
       this.emit('loaded');
       return true;
     }

@@ -32,10 +32,33 @@ the controls on any time from **Settings → Mobile controls → ON**.
 ```
 EXPLORE → DISCOVER → SCAN → MINE → EARN CREDITS → UPGRADE SHIP
    → TRAVEL FARTHER → DISCOVER NEW LOCATIONS → COMPLETE MISSIONS
+   → LAND → LIVE AT THE OUTPOST → DRIVE THE ROVER → REPAIR ROVERS
 ```
 
 First milestone: spawn near Earth Station → fly → target the Moon (`T`) →
 enter orbit (`E`) → scan (`R`) → complete FIRST FLIGHT & LUNAR VISIT → save.
+
+### The Land System
+
+When you orbit a **landable** body (Earth, Moon, Mars) press **`L`** to touch
+down. The surface is procedural terrain; you pilot a hover-shuttle and a
+drivable **rover**.
+
+- **Outpost (your planetary base).** Land near it and press **`E`** to enter:
+  **REST** (restore energy), **EAT** (recover satiety from food rations),
+  **MAINTAIN STATION** (a paid job that uses a spare part), and **DRIVE /
+  PARK ROVER**.
+- **Rover.** Board it with `E` and drive with **W/A/S/D** over the terrain to
+  explore and reach field objectives.
+- **Broken rovers.** Scattered on every world. Drive up to one and press
+  **`E`** to repair it (takes a few seconds, costs 1 spare part) — pays
+  **credits + XP** per rover fixed.
+- **Food / satiety.** Your astronaut gets hungry over time (the FOOD bar
+  drains). Eat rations at the outpost to recover; buy more food & spare parts
+  at any space station. Running out of food slows your energy — keep stocked.
+
+Your new career starts with a small kit of **6 food rations** and **3 spare
+parts** so you can settle in at your first outpost immediately.
 
 ---
 
@@ -45,10 +68,10 @@ enter orbit (`E`) → scan (`R`) → complete FIRST FLIGHT & LUNAR VISIT → sav
 |---|---|
 | **Solar System** | Sun (animated shader) + all 8 planets + 10 moons (Moon, Phobos, Deimos, Io, Europa, Ganymede, Callisto, Titan, Enceladus, Triton), rings for Saturn/Uranus, axial tilts, Kepler-relative orbital speeds |
 | **Flight** | 6-DOF ship: thrust, reverse, strafe, vertical, roll, boost, brake, smooth acceleration, momentum, clamped inverse-square gravity, gravity assists, planet collision + shields/hull damage |
-| **Interaction** | Targeting, planet orbit mode, landing on **Earth/Moon/Mars** (procedural terrain, local gravity, landing, sample collection), scanner with discovery flow, asteroid mining |
-| **Economy** | 5 resources, cargo capacity, space stations (Earth/Mars/Jupiter/Saturn) with refuel · repair · trade · upgrades |
-| **Progression** | Credits, XP/levels, 5 upgrade systems × 2–3 tiers (Engine, Tank, Shield, Scanner, Cargo), 10-mission chain, 12 achievements |
-| **Exploration** | Procedural asteroid belt (instanced, pooled, minable), 3 hidden anomalies, codex encyclopedia that unlocks as you scan |
+| **Interaction** | Targeting, planet orbit mode, landing on **Earth/Moon/Mars** (procedural terrain, local gravity, landing, sample collection), a planetary **outpost** (live · eat · maintain · rover), repair broken rovers, scanner with discovery flow, asteroid mining |
+| **Economy** | 7 resources (incl. Food rations & Spare Parts), cargo capacity, space stations (Earth/Mars/Jupiter/Saturn) with refuel · repair · trade · upgrades, plus outpost jobs that pay credits |
+| **Progression** | Credits, XP/levels, 5 upgrade systems × 2–3 tiers (Engine, Tank, Shield, Scanner, Cargo), 10-mission chain, 16 achievements |
+| **Exploration** | Procedural asteroid belt (instanced, pooled, minable), 3 hidden anomalies, drivable surface **rover** + scattered broken rovers to find and repair, codex encyclopedia that unlocks as you scan |
 | **UI** | Loading screen, animated main menu, HUD (bars/target/prompt/warnings), solar system chart (click to inspect + fast travel), planet info cards, dock panel, settings, help |
 | **Fast travel** | Discovered destinations can be warped to for fuel + a few seconds of travel |
 | **Time** | Accelerated sim clock (1 real s = 1 game min), 1×/10×/100× warp — orbits use the same clock |

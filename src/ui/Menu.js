@@ -222,6 +222,8 @@ export class Menu {
         <tr><td>L</td><td>Land (when orbiting Earth / Moon / Mars)</td></tr>
         <tr><td>V</td><td>Toggle chase / free camera</td></tr>
         <tr><td>ESC</td><td>Pause</td></tr>
+        <tr><td>SURFACE</td><td>After landing: E near the outpost = enter it (rest · eat · maintain · drive the rover). E near a broken rover = repair it for credits. E near the parked rover/shuttle = board it. Drive the rover with W/A/S/D; it follows the terrain.</td></tr>
+        <tr><td>FOOD</td><td>Your astronaut gets hungry over time. Eat food rations at the outpost to restore satiety; buy more at stations / outposts. Run out of fuel is fatal — keep rations stocked.</td></tr>
         <tr><td>TOUCH</td><td>FPS layout (PUBG / Free Fire): left = move stick, right side = drag to look, big E = interact / hold to mine. Settings → Mobile controls.</td></tr>
       </table>
       <p class="dim">Aim assist (Settings) gently steers the nose toward the current target, like auto-aim in FFM / PUBG — toggle it off if you want full manual control.</p>
