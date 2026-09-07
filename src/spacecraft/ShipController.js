@@ -182,6 +182,8 @@ export class ShipController {
     }
     if (this.touch.vertUp) vert = Math.max(vert, 1);
     if (this.touch.vertDown) vert = Math.min(vert, -1);
+    // surface JUMP button (astronaut mode) shares the vertical channel
+    if (this.touch.jump) vert = Math.max(vert, 1);
 
     const input = {
       throttleF: throttle, strafe, vert,

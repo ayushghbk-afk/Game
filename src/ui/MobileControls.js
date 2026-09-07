@@ -110,8 +110,10 @@ export class MobileControls {
         <button class="mc-btn" data-hold="brake">BRAKE</button>
         <button class="mc-btn" data-hold="vertUp">▲</button>
         <button class="mc-btn" data-hold="vertDown">▼</button>
+        <button class="mc-btn mc-jump hidden" data-hold="jump">JUMP</button>
       </div>
       <button class="mc-btn mc-interact" data-holdTap="interact">E</button>
+      <button class="mc-btn mc-eva hidden" data-tap="eva">EVA</button>
       <div class="mc-top-actions">
         <button class="mc-btn mc-small" data-tap="scan">SCAN</button>
         <button class="mc-btn mc-small" data-tap="target">TGT</button>
@@ -162,6 +164,32 @@ export class MobileControls {
     // block browser gestures
     this.wrap.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
     this.wrap.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    this.evaBtn = this.wrap.querySelector('[data-tap="eva"]');
+    this._mode = null;
+  }
+
+  /**
+   * Re-skin the touch layout per vehicle (the on-screen UI must change
+   * when the player switches between ship / shuttle / rover / on foot).
+   * mode: 'space' | 'shuttle' | 'rover' | 'foot'
+   */
+  setMode(mode) {
+    if (this._mode === mode) return;
+    this._mode = mode;
+    const on = (sel, show) => this.wrap.querySelector(sel)?.classList.toggle('hidden', !show);
+    // ship-only cluster (boost doubles as rover nitro)
+    on('[data-hold="boost"]', mode === 'space' || mode === 'rover');
+    on('[data-hold="vertDown"]', mode === 'space' || mode === 'shuttle');
+    // ▲ = thrust up in space, take-off on the surface shuttle
+    on('[data-hold="vertUp"]', mode === 'space' || mode === 'shuttle');
+    // surface vehicles
+    on('[data-hold="brake"]', mode === 'space' || mode === 'rover');
+    on('[data-hold="jump"]', mode === 'foot');
+    on('[data-tap="land"]', mode === 'space');
+    // EVA toggle on every surface mode; from on-foot it reads "SHUTTLE"
+    on('[data-tap="eva"]', mode !== 'space');
+    if (this.evaBtn) this.evaBtn.textContent = mode === 'foot' ? 'SHUTTLE' : 'EVA';
   }
 
   show() { this.wrap.classList.remove('hidden'); this.state.active = true; }

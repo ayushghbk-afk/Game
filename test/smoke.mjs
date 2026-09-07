@@ -87,6 +87,7 @@ const { TimeSystem } = await import('../src/game/TimeSystem.js');
 const { MISSIONS } = await import('../src/missions/MissionData.js');
 const { MissionManager } = await import('../src/missions/MissionManager.js');
 const { SurfaceScene } = await import('../src/game/SurfaceScene.js');
+const { SURFACE_THEMES, themeFor } = await import('../src/surface/SurfaceThemes.js');
 const { SaveSystem } = await import('../src/save/SaveSystem.js');
 const { Effects } = await import('../src/fx/Effects.js');
 const AudioManagerMod = await import('../src/audio/AudioManager.js');
@@ -475,6 +476,112 @@ for (const id of ['earth', 'moon', 'mars']) {
     surf.dispose();
   });
 }
+
+console.log('\n== SURFACE EXPANSION (all worlds + EVA + supply line) ==');
+check('every planet & moon has a research surface theme', () => {
+  for (const cfg of [...PLANETS, ...MOONS]) {
+    const th = themeFor(cfg);
+    assert(th, `no theme for ${cfg.id}`);
+    assert(th.amp > 0 && Array.isArray(th.features), `bad theme for ${cfg.id}`);
+    assert(th.rewards && Object.keys(th.rewards).length > 0, `no sample rewards for ${cfg.id}`);
+    assert(cfg.surface && cfg.surface.theme, `${cfg.id} missing surface.theme in config`);
+    assert(SURFACE_THEMES[cfg.surface.theme], `${cfg.id} theme key not found`);
+  }
+});
+check('all 18 bodies build distinct surfaces with caches + sample site', () => {
+  const seenTitles = new Set();
+  for (const cfg of [...PLANETS, ...MOONS]) {
+    const surf = new SurfaceScene(cfg, 'low');
+    for (const [x, z] of [[0, 0], [120, -90], [-300, 200], [400, 350]]) {
+      assert(Number.isFinite(surf.heightAt(x, z)), `${cfg.id} height not finite`);
+    }
+    assert(surf.gravAccel > 0, `${cfg.id} gravity`);
+    assert(surf.altitude > 0, `${cfg.id} ship starts below ground`);
+    assert(surf.caches.length > 0, `${cfg.id} has no supply caches`);
+    assert(surf.caches.every(c => Number.isFinite(c.pos.y)), `${cfg.id} cache pos not finite`);
+    assert(surf.sampleSite && Number.isFinite(surf.sampleSite.pos.y), `${cfg.id} sample site`);
+    assert(Array.isArray(surf.brokenRovers), `${cfg.id} brokenRovers array`);
+    if (surf.theme.cloudDeck) assert(surf.brokenRovers.length === 0, `${cfg.id} cloud deck should have no broken rovers`);
+    seenTitles.add(surf.theme.title);
+    // every body must offer at least parts recovery somewhere
+    const c = surf.caches[0];
+    assert(c.payload && c.payload.parts >= 1, `${cfg.id} cache missing spare parts`);
+  }
+  assert(seenTitles.size >= 12, 'expected a distinct map per world');
+});
+check('supply cache recover (spare parts) + delivery from Earth round-trip', () => {
+  const cfg = PLANETS.find(p => p.id === 'mars');
+  const surf = new SurfaceScene(cfg, 'low');
+  const c = surf.caches[0];
+  const near = surf.nearestCache(c.pos.x, c.pos.z, 16);
+  assert(near && near.i === 0, 'nearestCache missed the cache');
+  const payload = surf.takeCache(0);
+  assert(payload && payload.parts >= 1, 'takeCache payload');
+  assert(surf.nearestCache(c.pos.x, c.pos.z, 16) === null, 'cache still pickable after take');
+  const order = { id: 'o-test-1', planet: 'mars', item: 'parts', qty: 1 };
+  surf.addDelivery(order);
+  const dPos = surf.deliveries[0].pos;
+  const d = surf.nearestDelivery(dPos.x, dPos.z, 16);
+  assert(d, 'nearestDelivery missed the crate');
+  const taken = surf.takeDelivery(d.i);
+  assert(taken && taken.id === 'o-test-1', 'takeDelivery order');
+  surf.dispose();
+});
+check('astronaut EVA: runs, jumps under local gravity, lands', () => {
+  const cfg = PLANETS.find(p => p.id === 'mars');
+  const surf = new SurfaceScene(cfg, 'low');
+  surf.enterFoot({ x: 40, z: 40 });
+  const cam = new THREE.PerspectiveCamera();
+  // hold JUMP for 1 second (one clean hop), then run on flat ground
+  const input = { throttleF: 1, strafe: 0, vert: 1, yawDelta: 0, pitchDelta: 0, rollDelta: 0, boost: false };
+  let airborne = false, maxY = -Infinity;
+  for (let i = 0; i < 900; i++) {
+    input.vert = i < 30 ? 1 : 0;
+    surf.update(1 / 30, input, cam, { fuelAvailable: () => false, onCrash: () => {}, onLeave: () => {} });
+    if (!surf.footState.grounded) airborne = true;
+    maxY = Math.max(maxY, surf.footState.position.y - surf.heightAt(surf.footState.position.x, surf.footState.position.z));
+  }
+  const start = Math.hypot(40, 40), end = surf.footState.position;
+  assert(airborne, 'astronaut never left the ground (jump failed)');
+  assert(maxY > 1.2, `jump apex too low (${maxY.toFixed(2)})`);
+  const travelled = Math.hypot(end.x - 40, end.z - 40);
+  assert(travelled > 10, `astronaut did not run (moved ${travelled.toFixed(1)})`);
+  assert(surf.footState.grounded, 'astronaut not grounded at end of sim');
+  assert(surf.vehicleMode === 'foot', 'vehicle mode should stay foot');
+  surf.dispose();
+});
+check('low-gravity world gives longer hang time (Phobos EVA)', () => {
+  const cfg = MOONS.find(m => m.id === 'phobos');
+  const surf = new SurfaceScene(cfg, 'low');
+  surf.enterFoot({ x: 10, z: 10 });
+  const cam = new THREE.PerspectiveCamera();
+  const input = { throttleF: 0, strafe: 0, vert: 1, yawDelta: 0, pitchDelta: 0, rollDelta: 0, boost: false };
+  let airborneFrames = 0;
+  for (let i = 0; i < 60 * 12; i++) {
+    surf.update(1 / 30, input, cam, { fuelAvailable: () => false, onCrash: () => {}, onLeave: () => {} });
+    if (!surf.footState.grounded) airborneFrames++;
+  }
+  assert(airborneFrames > 30, 'low-g jump should hang in the air a long time');
+  surf.dispose();
+});
+check('supply line quotes scale with distance from Earth', () => {
+  const sl = ECONOMY.surface.supplyLine;
+  assert(Array.isArray(sl.items) && sl.items.length >= 4, 'supply items');
+  const dfMars = Math.abs(202.5 - 160) / 300;
+  const dfJupiter = Math.abs(433.2 - 160) / 300;
+  const cMars = Math.ceil(ECONOMY.resources.parts.price * 1 * (1 + sl.costPerDist * dfMars));
+  const cJup = Math.ceil(ECONOMY.resources.parts.price * 1 * (1 + sl.costPerDist * dfJupiter));
+  assert(cJup > cMars > 0, 'cost must scale with distance');
+  const eMars = sl.baseEtaGameSec + sl.etaPerDist * dfMars;
+  const eJup = sl.baseEtaGameSec + sl.etaPerDist * dfJupiter;
+  assert(eJup > eMars > 0, 'ETA must scale with distance');
+});
+check('fresh state persists supply orders + new stats fields', () => {
+  const st = freshState();
+  assert(Array.isArray(st.supplyOrders), 'supplyOrders array');
+  assert(typeof st.stats.caches === 'number' && typeof st.stats.deliveries === 'number' && typeof st.stats.evas === 'number', 'new stats');
+  assert(ACHIEVEMENTS.some(a => a.id === 'scavenger') && ACHIEVEMENTS.some(a => a.id === 'logistics') && ACHIEVEMENTS.some(a => a.id === 'walker'), 'new achievements registered');
+});
 
 console.log('\n== AUDIO MANAGER (no audio hardware) ==');
 check('audio manager no-ops safely without AudioContext', () => {

@@ -40,8 +40,9 @@ export const PLANETS = [
     id: 'mercury', name: 'MERCURY', au: 0.387, orbitRadius: ORBIT.MERCURY,
     radius: 1.30, phase: 2.1, tilt: 0.03, rotationSpeed: 0.35, color: 0x9c8e84,
     texture: { kind: 'rocky', palette: ['#6e6259', '#8a7d72', '#a89a8e', '#c4b8ac'], craters: 90, roughness: 1.0 },
-    atmosphere: null, rings: null, landable: false,
+    atmosphere: null, rings: null, landable: false, // NOTE: every body is landable once SCANNED — surface theme below
     gravity: 0.38, massScale: 0.055,
+    surface: { theme: 'mercury' },
     facts: { type: 'Terrestrial Planet', radius: '2,439 km', gravity: '3.7 m/s²', moons: 0, atmosphere: 'Trace exosphere', temperature: '167°C' },
     codex: 'The smallest planet and closest to the Sun. Its cratered face swings between scorched days and freezing nights.'
   },
@@ -51,6 +52,7 @@ export const PLANETS = [
     texture: { kind: 'venus', palette: ['#b98a4e', '#d4a768', '#e8c68d', '#f4e0b0'] },
     atmosphere: { color: 0xe8c98a, density: 1.3 }, rings: null, landable: false,
     gravity: 0.90, massScale: 0.815,
+    surface: { theme: 'venus' },
     facts: { type: 'Terrestrial Planet', radius: '6,051 km', gravity: '8.87 m/s²', moons: 0, atmosphere: 'CO₂, thick', temperature: '464°C' },
     codex: 'Earth’s toxic twin. A runaway greenhouse world crushed under acid clouds hotter than a furnace.'
   },
@@ -60,6 +62,7 @@ export const PLANETS = [
     texture: { kind: 'earth' },
     atmosphere: { color: 0x6eb6ff, density: 1.0 }, rings: null, landable: true,
     gravity: 1.0, massScale: 1.0,
+    surface: { theme: 'earth' },
     clouds: true, nightLights: true,
     facts: { type: 'Terrestrial Planet', radius: '6,371 km', gravity: '9.81 m/s²', moons: 1, atmosphere: 'Nitrogen / Oxygen', temperature: '15°C' },
     codex: 'Homeworld. The only known harbor of life — blue oceans, white clouds and the glow of a billion cities at night.'
@@ -70,6 +73,7 @@ export const PLANETS = [
     texture: { kind: 'mars', palette: ['#7a3220', '#a34a2a', '#c46a3f', '#d98a5a'] },
     atmosphere: { color: 0xd98b66, density: 0.45 }, rings: null, landable: true,
     gravity: 0.38, massScale: 0.107,
+    surface: { theme: 'mars' },
     facts: { type: 'Terrestrial Planet', radius: '3,389 km', gravity: '3.71 m/s²', moons: 2, atmosphere: 'CO₂, thin', temperature: '−63°C' },
     codex: 'The red frontier. Rust deserts, towering volcanoes and the most habitable ground beyond Earth.'
   },
@@ -79,6 +83,7 @@ export const PLANETS = [
     texture: { kind: 'gas', palette: ['#a67c52', '#c9a274', '#e3cba8', '#8a5a3a', '#f0e2c8'], bands: 14, storm: true },
     atmosphere: { color: 0xd8b98a, density: 1.2 }, rings: null, landable: false,
     gravity: 2.53, massScale: 317.8,
+    surface: { theme: 'jupiter' }, // gas giant — cloud-deck surface
     facts: { type: 'Gas Giant', radius: '69,911 km', gravity: '24.79 m/s²', moons: 95, atmosphere: 'Hydrogen / Helium', temperature: '−108°C' },
     codex: 'King of the planets. Storms bigger than Earth rage in its banded clouds; its gravity shields the inner system.'
   },
@@ -89,6 +94,7 @@ export const PLANETS = [
     atmosphere: { color: 0xe0cf9a, density: 1.1 },
     rings: { inner: 1.35, outer: 2.3, color: 0xcdbb90, opacity: 0.9 }, landable: false,
     gravity: 1.06, massScale: 95.2,
+    surface: { theme: 'saturn' }, // gas giant — cloud-deck surface
     facts: { type: 'Gas Giant', radius: '58,232 km', gravity: '10.44 m/s²', moons: 146, atmosphere: 'Hydrogen / Helium', temperature: '−139°C' },
     codex: 'The jewel of the system. Its rings — ice and rock — span a quarter million kilometres yet are thinner than a building.'
   },
@@ -99,6 +105,7 @@ export const PLANETS = [
     atmosphere: { color: 0x9fd8d8, density: 0.9 },
     rings: { inner: 1.6, outer: 2.0, color: 0x77999b, opacity: 0.35 }, landable: false,
     gravity: 0.89, massScale: 14.5,
+    surface: { theme: 'uranus' }, // ice giant — cloud-deck surface
     facts: { type: 'Ice Giant', radius: '25,362 km', gravity: '8.69 m/s²', moons: 28, atmosphere: 'H, He, Methane', temperature: '−197°C' },
     codex: 'The sideways planet, rolled onto its back by an ancient impact. Methane haze paints it a pale cyan.'
   },
@@ -108,6 +115,7 @@ export const PLANETS = [
     texture: { kind: 'ice', palette: ['#2e4fb8', '#3f66d4', '#6a8ae4'] },
     atmosphere: { color: 0x5f83e8, density: 1.0 }, rings: null, landable: false,
     gravity: 1.14, massScale: 17.1,
+    surface: { theme: 'neptune' }, // ice giant — cloud-deck surface
     facts: { type: 'Ice Giant', radius: '24,622 km', gravity: '11.15 m/s²', moons: 16, atmosphere: 'H, He, Methane', temperature: '−201°C' },
     codex: 'The windiest world — supersonic storms tear through its deep blue clouds at 2,000 km/h.'
   }
@@ -117,52 +125,62 @@ export const MOONS = [
   { parent: 'earth', id: 'moon', name: 'THE MOON', orbitRadius: 8.5, radius: 0.95, phase: 1.0, period: 150,
     texture: { kind: 'rocky', palette: ['#7a7a78', '#93938f', '#ababa5', '#c5c5be'], craters: 120, roughness: 0.9 },
     landable: true, gravity: 0.17, massScale: 0.0123,
+    surface: { theme: 'moon' },
     facts: { type: 'Natural Satellite', radius: '1,737 km', gravity: '1.62 m/s²', atmosphere: 'None', temperature: '−20°C' },
     codex: 'Earth’s constant companion. Silent gray plains of dust, waiting to be walked again.' },
   { parent: 'mars', id: 'phobos', name: 'PHOBOS', orbitRadius: 3.6, radius: 0.35, phase: 2.2, period: 32,
     texture: { kind: 'rocky', palette: ['#5c5148', '#6e6257', '#857767'], craters: 40, roughness: 1.4 },
     landable: false, gravity: 0.006, massScale: 0.00000017,
+    surface: { theme: 'phobos' },
     facts: { type: 'Natural Satellite', radius: '11 km', gravity: '0.006 m/s²', atmosphere: 'None', temperature: '−40°C' },
     codex: 'A captured rock spiraling slowly toward Mars — one day it will shatter into a ring.' },
   { parent: 'mars', id: 'deimos', name: 'DEIMOS', orbitRadius: 5.4, radius: 0.28, phase: 4.9, period: 58,
     texture: { kind: 'rocky', palette: ['#665a4f', '#7a6c5e', '#8f8070'], craters: 30, roughness: 1.3 },
     landable: false, gravity: 0.003, massScale: 0.00000002,
+    surface: { theme: 'deimos' },
     facts: { type: 'Natural Satellite', radius: '6 km', gravity: '0.003 m/s²', atmosphere: 'None', temperature: '−40°C' },
     codex: 'Mars’ tiny outer moon, a smooth dust-covered pebble adrift in the dark.' },
   { parent: 'jupiter', id: 'io', name: 'IO', orbitRadius: 12.5, radius: 1.05, phase: 0.4, period: 48,
     texture: { kind: 'rocky', palette: ['#d9c25a', '#e8d97a', '#c9982f', '#8a5a1f'], craters: 20, roughness: 0.7 },
     landable: false, gravity: 0.18, massScale: 0.015,
+    surface: { theme: 'io' },
     facts: { type: 'Volcanic Moon', radius: '1,822 km', gravity: '1.80 m/s²', atmosphere: 'SO₂ trace', temperature: '−130°C' },
     codex: 'The most volcanic body in the system — sulfur plains constantly repainted by eruptions.' },
   { parent: 'jupiter', id: 'europa', name: 'EUROPA', orbitRadius: 16.5, radius: 0.9, phase: 2.8, period: 72,
     texture: { kind: 'rocky', palette: ['#c8c4b4', '#ddd9c8', '#b09a80', '#e8e4d4'], craters: 8, roughness: 0.35 },
     landable: false, gravity: 0.13, massScale: 0.008,
+    surface: { theme: 'europa' },
     facts: { type: 'Ice Moon', radius: '1,561 km', gravity: '1.31 m/s²', atmosphere: 'O₂ trace', temperature: '−160°C' },
     codex: 'A cracked shell of ice hiding a global ocean — a prime candidate for life beyond Earth.' },
   { parent: 'jupiter', id: 'ganymede', name: 'GANYMEDE', orbitRadius: 21.5, radius: 1.35, phase: 4.1, period: 110,
     texture: { kind: 'rocky', palette: ['#8a8378', '#a29a8c', '#6e675e', '#bcb3a4'], craters: 60, roughness: 0.8 },
     landable: false, gravity: 0.15, massScale: 0.025,
+    surface: { theme: 'ganymede' },
     facts: { type: 'Ice Moon', radius: '2,634 km', gravity: '1.43 m/s²', atmosphere: 'O₂ trace', temperature: '−163°C' },
     codex: 'The largest moon in the Solar System — bigger than Mercury, with a magnetic field of its own.' },
   { parent: 'jupiter', id: 'callisto', name: 'CALLISTO', orbitRadius: 27.5, radius: 1.25, phase: 5.6, period: 160,
     texture: { kind: 'rocky', palette: ['#655a4e', '#7a6e60', '#55493d', '#8a7e6e'], craters: 110, roughness: 1.0 },
     landable: false, gravity: 0.13, massScale: 0.018,
+    surface: { theme: 'callisto' },
     facts: { type: 'Ice Moon', radius: '2,410 km', gravity: '1.24 m/s²', atmosphere: 'None', temperature: '−139°C' },
     codex: 'The most cratered world known — a fossil record of the early Solar System.' },
   { parent: 'saturn', id: 'titan', name: 'TITAN', orbitRadius: 21.5, radius: 1.3, phase: 1.6, period: 140,
     texture: { kind: 'venus', palette: ['#c08a3e', '#d8a552', '#e8bc70', '#8a5f28'] },
     atmosphere: { color: 0xd8a850, density: 1.4 },
     landable: false, gravity: 0.14, massScale: 0.0225,
+    surface: { theme: 'titan' },
     facts: { type: 'Moon', radius: '2,574 km', gravity: '1.35 m/s²', atmosphere: 'Nitrogen, thick', temperature: '−179°C' },
     codex: 'A moon with weather — orange smog, methane rain and rivers of liquid natural gas.' },
   { parent: 'saturn', id: 'enceladus', name: 'ENCELADUS', orbitRadius: 12.5, radius: 0.55, phase: 3.3, period: 60,
     texture: { kind: 'rocky', palette: ['#d8dde2', '#eef2f5', '#c2ccd4'], craters: 15, roughness: 0.3 },
     landable: false, gravity: 0.011, massScale: 0.00018,
+    surface: { theme: 'enceladus' },
     facts: { type: 'Ice Moon', radius: '252 km', gravity: '0.11 m/s²', atmosphere: 'Plumes', temperature: '−198°C' },
     codex: 'Geysers of ocean water blast from its south pole, feeding Saturn’s E ring.' },
   { parent: 'neptune', id: 'triton', name: 'TRITON', orbitRadius: 12.0, radius: 1.05, phase: 0.9, period: 120,
     texture: { kind: 'rocky', palette: ['#c4c0c8', '#d8d4dc', '#a89aa0', '#e8e4ea'], craters: 25, roughness: 0.5 },
     landable: false, gravity: 0.08, massScale: 0.0036,
+    surface: { theme: 'triton' },
     facts: { type: 'Ice Moon', radius: '1,353 km', gravity: '0.78 m/s²', atmosphere: 'N₂ trace', temperature: '−235°C' },
     codex: 'Neptune’s great captive moon, orbiting backwards — a stolen Kuiper Belt world.' }
 ];
@@ -214,7 +232,21 @@ export const ECONOMY = {
     maintainCooldown: 45,      // game-seconds between maintenance jobs
     hungerDrainPerSec: 0.14,   // full->0 satiety in ~12 real minutes
     hungerWarnAt: 25,          // below this satiety, warn + slow energy regen
-    satietyPerMeal: 45         // food units restored per meal
+    satietyPerMeal: 45,        // food units restored per meal
+    supplyLine: {
+      // Order goods from EARTH to the planetary outpost you are on.
+      // Cost & transit time scale with how far the outpost is from Earth.
+      baseEtaGameSec: 900,     // ~15 real seconds at 1× (shorter with time warp)
+      etaPerDist: 700,         // extra game-seconds per unit of distance factor
+      costPerDist: 0.75,       // price multiplier per unit of distance factor
+      items: [
+        { id: 'parts', qty: 1,  name: 'SPARE PARTS' },
+        { id: 'food',  qty: 5,  name: 'FOOD RATIONS' },
+        { id: 'water', qty: 10, name: 'WATER' },
+        { id: 'ice',   qty: 10, name: 'ICE' },
+        { id: 'rare',  qty: 1,  name: 'RARE MINERALS' }
+      ]
+    }
   }
 };
 

@@ -98,6 +98,74 @@ check('MobileControls constructs', () => {
   const touch = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, active: false };
   mobile = new MobileControls(root, touch, { interact: noop, scan: noop, map: noop, target: noop, missions: noop, codex: noop });
 });
+check('BasePanel renders supply line from Earth, EVA + field jobs', () => {
+  const panelRoot = document.createElement('div');
+  const panel = new BasePanel(panelRoot, {
+    gs,
+    onRest: noop, onEat: noop, onMaintain: () => ({ ok: true }), onRover: noop, onLeave: noop, sound: noop,
+    onEva: noop,
+    brokenRovers: () => [{ fixed: false }],
+    maintainCooldownRemaining: () => 0,
+    supplyQuote: () => ({ cost: 123, etaGameSec: 1600 }),
+    orderItem: noop,
+    getOrders: () => [{ id: 'o1', item: 'food', qty: 5, cost: 900, placedAt: 1000, dueAt: 2500 }],
+  });
+  panel.show('MARS OUTPOST', 'shuttle');
+  const text = panel.modal.body.textContent;
+  assert(text.includes('SURFACE ROVER'), 'rover action missing');
+  assert(text.includes('SUPPLY LINE FROM EARTH') || text.includes('ORDER FROM EARTH'), 'supply card missing');
+  assert(text.includes('123 CR'), 'supply quote missing');
+  assert(text.includes('in transit') && text.includes('arrives in'), 'in-transit order row missing');
+  panel.hide();
+});
+check('HUD mode chip + bars track the active vehicle', () => {
+  const hidden = (b) => hud.bars[b].root.classList.contains('hidden');
+  hud.show();
+  // space: ship bars, no satiety
+  hud.setMode('space');
+  hud.update({ fuel: 50, fuelMax: 100, shield: 90, shieldMax: 100, energy: 40, energyMax: 100, hull: 100, hullMax: 100, credits: 100, level: 1, clock: '', timeSpeed: 1, speed: '10 KM/S', prompt: '' });
+  assert(hud.modeChip.textContent.includes('SHIP'), 'ship chip');
+  assert(!hidden('fuel'), 'fuel row hidden in space');
+  assert(!hidden('cargo'), 'cargo row hidden in space');
+  assert(hidden('satiety'), 'satiety row visible in space');
+  assert(hud.bars.energy.labelEl.textContent === 'ENERGY', 'space energy label');
+  // rover: different chip + body, rover cell label, satiety appears
+  hud.setMode('rover', 'MARS');
+  hud.update({ satiety: 77, cargo: 5, cargoMax: 15, energy: 80, energyMax: 100, hull: 100, hullMax: 100, credits: 100, level: 1, clock: '', timeSpeed: 1, speed: '12 KM/H', prompt: '' });
+  assert(hud.modeChip.textContent.includes('ROVER'), 'rover chip');
+  assert(hud.modeChip.textContent.includes('MARS'), 'rover chip shows body');
+  assert(hud.bars.energy.labelEl.textContent === 'ROVER CELL', 'rover energy label');
+  assert(hidden('fuel'), 'fuel row should be hidden on rover');
+  assert(!hidden('cargo'), 'cargo row on surface');
+  assert(!hidden('satiety'), 'satiety row on surface');
+  // astronaut: O2 label
+  hud.setMode('foot', 'MARS');
+  hud.update({ satiety: 77, cargo: 5, cargoMax: 15, energy: 80, energyMax: 100, hull: 100, hullMax: 100, credits: 100, level: 1, clock: '', timeSpeed: 1, speed: '12 KM/H', prompt: '' });
+  assert(hud.modeChip.textContent.includes('ASTRONAUT'), 'astronaut chip');
+  assert(hud.bars.energy.labelEl.textContent === 'O₂ / VITALS', 'astronaut energy label');
+  hud.setMode('space');
+  assert(hud.modeChip.textContent.includes('SHIP'), 'back to ship chip');
+  assert(hidden('satiety'), 'satiety hidden back in space');
+});
+check('MobileControls buttons follow the active vehicle', () => {
+  const q = (sel) => mobile.wrap.querySelector(sel);
+  mobile.setMode('space');
+  assert(!q('.mc-boost').classList.contains('hidden'), 'boost in space');
+  assert(!q('[data-tap="land"]').classList.contains('hidden'), 'land in space');
+  assert(q('.mc-jump').classList.contains('hidden'), 'jump hidden in space');
+  assert(q('.mc-eva').classList.contains('hidden'), 'eva hidden in space');
+  mobile.setMode('foot');
+  assert(!q('.mc-jump').classList.contains('hidden'), 'jump on EVA');
+  assert(!q('.mc-eva').classList.contains('hidden'), 'eva toggle on EVA');
+  assert(q('.mc-eva').textContent === 'SHUTTLE', 'eva label on foot');
+  assert(q('.mc-boost').classList.contains('hidden'), 'boost hidden on EVA');
+  assert(q('[data-tap="land"]').classList.contains('hidden'), 'land hidden on EVA');
+  mobile.setMode('rover');
+  assert(q('.mc-eva').textContent === 'EVA', 'eva label on rover');
+  assert(!q('.mc-boost').classList.contains('hidden'), 'boost on rover');
+  mobile.setMode('space');
+  assert(q('.mc-eva').classList.contains('hidden'), 'eva hidden back in space');
+});
 check('Toasts + LoadingScreen construct', () => {
   toasts = new Toasts(root);
   loading = new LoadingScreen(root);
