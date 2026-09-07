@@ -46,6 +46,8 @@ import { BackButton } from '../ui/BackButton.js';
 import { RocketBuilder } from '../ui/RocketBuilder.js';
 import { AccountPanel, randomGuestName } from '../ui/AccountPanel.js';
 import { LaunchSequence } from '../rockets/LaunchSequence.js';
+import { LandingSequence } from '../fx/LandingSequence.js';
+import { MultiplayerSession } from '../net/Multiplayer.js';
 import { formatDistance, formatSpeed } from '../planets/PlanetData.js';
 import { cargoUsed } from '../world/Resources.js';
 import { mulberry32, clamp } from '../utils/Noise.js';
@@ -77,6 +79,13 @@ export class Game {
     this._autosaveT = 0;
     this._expectedUnlock = false;
     this._lastPerf = performance.now();
+
+    // Multiplayer / co-op
+    this.currentServer = null;
+    this.mp = null;                 // MultiplayerSession
+    this.remoteShips = new Map();   // userId → { group, label, flame… }
+    this._sharedCargo = false;     // true once a co-op session owns the hold
+    this.landing = null;            // LandingSequence while cinematic runs
 
     // ---- core systems ----
     this.gs = new GameState();
@@ -275,6 +284,26 @@ export class Game {
     this.root.appendChild(this.flashEl);
     this.fadeEl = el('div', 'screen-fade');
     this.root.appendChild(this.fadeEl);
+
+    // Co-op roster chip (top-right during multiplayer sessions)
+    this.mpHud = el('div', 'mp-hud hidden');
+    this.mpHud.innerHTML = `
+      <div class="mp-title"><span class="mp-dot"></span><span class="mp-name">SOLO</span></div>
+      <div class="mp-roster"></div>
+      <div class="mp-cargo hidden"></div>
+      <button class="btn btn-small mp-leave" type="button">LEAVE SERVER</button>`;
+    this.root.appendChild(this.mpHud);
+    this.mpHud.querySelector('.mp-leave').addEventListener('click', () => this.leaveServer());
+
+    // Landing cinematic overlay
+    this.landingHud = el('div', 'landing-hud hidden');
+    this.landingHud.innerHTML = `
+      <div class="lh-badge">PLANETFALL</div>
+      <div class="lh-caption">ATMOSPHERIC ENTRY</div>
+      <div class="lh-bar"><div class="lh-fill"></div></div>
+      <button class="btn btn-small lh-skip" type="button">SKIP ▸</button>`;
+    this.root.appendChild(this.landingHud);
+    this.landingHud.querySelector('.lh-skip').addEventListener('click', () => this.landing?.skip());
 
     this.confirmM = makeModal('ft-modal', 'FAST TRAVEL');
     this.root.appendChild(this.confirmM.root);
@@ -613,6 +642,29 @@ export class Game {
     this.backButton?.arm();
     if (this.backend?.signedIn) this.backend.setPresence(this.currentServer?.id, 'in-game', this.currentLocation()).catch(() => {});
     if (!this.mobileActive) this.controller.tryRequestPointerLock();
+    // Wire cargo/credits → shared hold once (idempotent).
+    this._bindMpEconomy();
+    this._refreshMpHud();
+  }
+
+  /** Push local cargo/credit mutations into the co-op shared hold. */
+  _bindMpEconomy() {
+    if (this._mpEconomyBound) return;
+    this._mpEconomyBound = true;
+    const pub = () => {
+      if (!this.mp?.active || !this._sharedCargo) return;
+      // Debounce to one publish per animation frame so a burst of mining
+      // ticks doesn't flood the channel.
+      if (this._mpCargoPub) return;
+      this._mpCargoPub = true;
+      requestAnimationFrame(() => {
+        this._mpCargoPub = false;
+        this._mpPublishCargo();
+        this._refreshMpHud();
+      });
+    };
+    this.gs.on('cargo', pub);
+    this.gs.on('credits', pub);
   }
 
   _wantsMobileControls() {
@@ -670,6 +722,12 @@ export class Game {
     this.mode = 'menu';
     this.orbiting = null;
     if (this.surface) this._disposeSurface();
+    // Stay on the server (friends still see you in lobby) but hide in-world ghosts.
+    this._clearRemoteShips();
+    if (this.mp?.active && this.backend?.signedIn) {
+      this.backend.setPresence(this.currentServer?.id, 'online', 'Main menu').catch(() => {});
+    }
+    this._refreshMpHud();
     document.exitPointerLock?.();
     this._expectedUnlock = true;
   }
@@ -792,6 +850,18 @@ export class Game {
     }
     this._lastStep = step;
 
+    // Co-op: broadcast pose + keep peer ships alive even while paused UI is up
+    // (so friends still see you). Cargo host election keeps running too.
+    if (this.mp?.active) {
+      this.mp.update(step);
+      // Re-place remote ships each frame so surface/space transitions stick.
+      if (this.remoteShips.size) {
+        for (const [, remote] of this.remoteShips) {
+          if (remote.last) this._placeRemoteShip(remote, remote.last);
+        }
+      }
+    }
+
     this.effects.update(step);
     if (this.modalOpen === 'map') this.mapView.render(this);
 
@@ -807,6 +877,7 @@ export class Game {
   _render() {
     if (this.mode === 'surface' && this.surface) {
       // surface scene replaces the space scene entirely (bloom off — cheap path)
+      // Remote crew on the same body were parented into surface.scene already.
       this.renderer.render(this.surface.scene, this.camera);
     } else if (this.composer) {
       this.composer.render();
@@ -1539,7 +1610,9 @@ export class Game {
         this.audio.stopMining();
         this.audio.setWarning(false);
         this.effects.setBeam(null, null, false);
-        this.surface = new SurfaceScene(body.cfg, this.quality);
+        this.surface = new SurfaceScene(body.cfg, this.quality, {
+          streaming: this.gs.state.settings.streaming
+        });
         this.mode = 'surface';
         this.orbiting = null;
         this.repairJob = null;
@@ -1553,28 +1626,69 @@ export class Game {
           if (pid === body.id) this.surface.takeCache(parseInt(idx, 10));
         }
         this.hud.show();
-        const cloud = this.surface.theme?.cloudDeck;
-        this.toasts.show('PLANETFALL', cloud
-          ? `Descending through the cloud layer — touching down on the ${body.name} CLOUD DECK. Rover, EVA (E) and supply caches await.`
-          : `Touchdown on ${body.name} — land near the outpost, board the rover (E), or step out on foot (EVA) and hunt supply caches.`, 'info', 6500);
         this.gs.state.stats.landings++;
         this.gs.award('planetfall');
         this._syncMobileMode();
+
+        // Cool cinematic descent — player regains control at touchdown.
+        this.landing?.dispose?.();
+        this.landing = new LandingSequence(this.surface, this.camera, {
+          cloudDeck: !!this.surface.theme?.cloudDeck,
+          onDone: () => this._onLandingDone(body)
+        });
+        this.landingHud.classList.remove('hidden');
+        this.landingHud.querySelector('.lh-caption').textContent = this.landing.caption();
+        this.landingHud.querySelector('.lh-fill').style.width = '0%';
+        this.controller.enabled = false;
+        document.exitPointerLock?.();
+        this._expectedUnlock = true;
+        this.audio.arrival?.();
       } catch (e) {
         console.error('landing failed', e);
         this.toasts.show('LANDING FAILED', 'Surface module error — staying in orbit.', 'warn');
         this.mode = 'space';
+        this.landing = null;
+        this.landingHud.classList.add('hidden');
       }
-      setTimeout(() => this._fade(false), 120);
+      setTimeout(() => this._fade(false), 180);
     });
   }
 
+  _onLandingDone(body) {
+    this.landingHud.classList.add('hidden');
+    const cloud = this.surface?.theme?.cloudDeck;
+    this.toasts.show('PLANETFALL', cloud
+      ? `Cloud-deck landing complete on ${body.name}. Rover, EVA (E) and supply caches await across a vast deck.`
+      : `Touchdown on ${body.name} — a vast surface map surrounds the outpost. Board the rover (E) or step out on foot (EVA).`, 'success', 6500);
+    this.landing?.dispose?.();
+    this.landing = null;
+    this._syncMobileMode();
+    if (!this.mobileActive) this.controller.tryRequestPointerLock();
+  }
+
   _updateSurface(dt) {
-    const input = this.controller.sample(dt);
     this.shipVisual.group.visible = false;
     this.trail.line.visible = false;
     const stats = shipStats(this.gs.state.upgrades);
     const surf = this.surface;
+
+    // ---- cinematic landing takes over controls + camera ----
+    if (this.landing && !this.landing.done) {
+      this.controller.enabled = false;
+      const still = this.landing.update(dt);
+      const cap = this.landingHud.querySelector('.lh-caption');
+      const fill = this.landingHud.querySelector('.lh-fill');
+      if (cap) cap.textContent = this.landing.caption();
+      if (fill) fill.style.width = Math.round(this.landing.progress * 100) + '%';
+      this.audio.setEngine(0.55 + Math.sin(performance.now() * 0.01) * 0.1, true);
+      if (!still) {
+        // onDone already fired inside LandingSequence
+      }
+      this._updateHUDSurface();
+      return;
+    }
+
+    const input = this.controller.sample(dt);
 
     // energy regen — slower when the astronaut is hungry
     const satiety = this.gs.satiety;
@@ -1714,6 +1828,16 @@ export class Game {
 
   _disposeSurface() {
     this.repairJob = null;
+    this.landing?.dispose?.();
+    this.landing = null;
+    this.landingHud?.classList.add('hidden');
+    // Detach any crew avatars that were parented into the surface scene
+    // before it is disposed (their GPU resources live on the mesh we keep).
+    for (const [, r] of this.remoteShips) {
+      r.surfaceRoot?.removeFromParent();
+      r.surfaceRoot = null;
+      r.surfaceLabel = null;
+    }
     this.surface?.dispose();
     this.surface = null;
   }
@@ -2411,10 +2535,28 @@ export class Game {
         'No game server is connected. ACCOUNT → CONNECT SERVER to go online — single-player works without it.', 'warn', 5200);
       return;
     }
-    this.currentServer = server;
-    try { await this.backend.setPresence(server.id, 'online', 'Lobby'); } catch { /* best effort */ }
-    this.toasts.show('CONNECTED', `Joined ${server.name} (${server.region.toUpperCase()}).`, 'success', 3000);
-    this.menu.renderServers();
+    // Guests can spectate the list, but a real co-op session needs a signed-in
+    // account so presence + Realtime have an identity. We still allow a local
+    // BroadcastChannel session for two tabs on the same browser.
+    if (!this.backend.signedIn) {
+      this.toasts.show('SIGN IN TO CREW UP',
+        'ACCOUNT → SIGN IN so friends can see you. Starting a local co-op session for this browser…', 'info', 5200);
+    }
+    try {
+      await this._startMultiplayer(server);
+      this.toasts.show('CREW ONLINE',
+        `Joined ${server.name} (${(server.region || '').toUpperCase()}). Friends who JOIN this server share your map, ships and cargo hold.`,
+        'success', 5200);
+      // Drop the player into the game if they were sitting on the menu.
+      if (this.mode === 'menu') {
+        if (SaveSystem.hasAnySave?.() || SaveSystem.listSlots?.().length) this.continueGame();
+        else this.newGame();
+      }
+      this.menu.renderServers();
+      this.menu.renderFriends();
+    } catch (e) {
+      this.toasts.show('JOIN FAILED', e?.message || String(e), 'warn', 4500);
+    }
   }
 
   async hostServer() {
@@ -2423,16 +2565,277 @@ export class Game {
       return;
     }
     try {
-      await this.backend.createServer({
+      const rows = await this.backend.createServer({
         name: `${this.backend.handle}'s expedition`,
         region: this.detectRegion(),
         mode: 'coop', capacity: 8
       });
-      this.toasts.show('SERVER HOSTED', 'Your friends can now find you in the server list.', 'success');
+      const server = Array.isArray(rows) ? rows[0] : rows;
+      if (!server?.id) throw new Error('Server created but no id returned.');
+      await this._startMultiplayer(server);
+      this.toasts.show('EXPEDITION HOSTED',
+        'Your friends can JOIN this server from the list, or you can INVITE them from FRIENDS. Cargo and the planet map are shared.',
+        'success', 5600);
+      if (this.mode === 'menu') {
+        if (SaveSystem.hasAnySave?.() || SaveSystem.listSlots?.().length) this.continueGame();
+        else this.newGame();
+      }
       this.menu.renderServers();
     } catch (e) {
       this.toasts.show('HOST FAILED', e.message, 'warn', 4000);
     }
+  }
+
+  async leaveServer() {
+    const name = this.currentServer?.name;
+    await this._stopMultiplayer();
+    this.toasts.show('LEFT SERVER', name ? `Disconnected from ${name}. Back to solo.` : 'Back to solo.', 'info', 2800);
+    this.menu.renderServers();
+    this._refreshMpHud();
+  }
+
+  async _startMultiplayer(server) {
+    await this._stopMultiplayer();
+    this.currentServer = server;
+    this.mp = new MultiplayerSession(this.backend, {
+      getLocalState: () => this._mpLocalState(),
+      onPeers: (peers) => this._onMpPeers(peers),
+      onSharedCargo: (res, credits) => this._onMpSharedCargo(res, credits),
+      onChat: (msg) => this.toasts.show(msg.handle || 'CREW', msg.text || '', 'info', 3200),
+      onInvite: (inv) => this._onMpInvite(inv),
+      onStatus: (t, k) => this.toasts.show('MULTIPLAYER', t, k || 'info', 2800)
+    });
+    // Seed the shared hold with whatever the local commander is carrying so
+    // the first host push has real cargo for the crew to share.
+    this.mp.seedFromLocal(this.gs.state.resources, this.gs.credits);
+    this._sharedCargo = true;
+    await this.mp.join(server);
+    this._refreshMpHud();
+  }
+
+  async _stopMultiplayer() {
+    if (this.mp) {
+      try { await this.mp.leave(); } catch { /* */ }
+    }
+    this.mp = null;
+    this.currentServer = null;
+    this._sharedCargo = false;
+    this._clearRemoteShips();
+    this.mpHud?.classList.add('hidden');
+  }
+
+  /** Snapshot the local player for the multiplayer broadcaster. */
+  _mpLocalState() {
+    let position, quaternion, velocity, bodyId = null, mode = this.mode;
+    if (this.mode === 'surface' && this.surface) {
+      const p = this.surface.playerPos();
+      position = { x: p.x, y: p.y, z: p.z };
+      quaternion = this.surface.shipState.quaternion;
+      velocity = this.surface.shipState.velocity;
+      bodyId = this.surface.id;
+      mode = 'surface:' + (this.surface.vehicleMode || 'shuttle');
+    } else {
+      position = this.shipState.position;
+      quaternion = this.shipState.quaternion;
+      velocity = this.shipState.velocity;
+    }
+    return {
+      handle: this.backend.signedIn ? this.backend.handle : this.identity?.name,
+      mode, bodyId, position, quaternion, velocity,
+      location: this.currentLocation?.() || null,
+      resources: this.gs.state.resources,
+      credits: this.gs.credits,
+      fuel: this.shipState.fuel, energy: this.shipState.energy,
+      shield: this.shipState.shield, hull: this.shipState.hull
+    };
+  }
+
+  _onMpPeers(peers) {
+    this._syncRemoteShips(peers);
+    this._refreshMpHud();
+  }
+
+  /**
+   * Apply a cargo snapshot from the session host. The shared hold is the
+   * crew's pool — mining, selling and outpost jobs all read/write it.
+   */
+  _onMpSharedCargo(resources, credits) {
+    if (!this._sharedCargo || !resources) return;
+    // Don't clobber mid-frame if we are the host (we just pushed this).
+    if (this.mp?.isHost) return;
+    for (const k of Object.keys(this.gs.state.resources)) {
+      this.gs.state.resources[k] = Math.max(0, Math.round(resources[k] || 0));
+    }
+    for (const k of Object.keys(resources)) {
+      if (this.gs.state.resources[k] == null) this.gs.state.resources[k] = Math.max(0, Math.round(resources[k] || 0));
+    }
+    if (Number.isFinite(credits)) this.gs.state.credits = Math.max(0, Math.round(credits));
+    this.gs.emit?.('cargo');
+    this.gs.emit?.('credits', this.gs.credits);
+    this._refreshMpHud();
+  }
+
+  /**
+   * Host publishes the current hold after any local cargo/credits change so
+   * the rest of the crew stays in sync.
+   */
+  _mpPublishCargo() {
+    if (!this.mp?.active || !this._sharedCargo) return;
+    if (!this.mp.isHost) {
+      // Non-host: tell the host what we think changed; host will rebroadcast.
+      this.mp.proposeCargoDelta(null, 0);
+      // Still push a full snapshot so a host-less pair (two guests on
+      // BroadcastChannel) converges.
+    }
+    this.mp.pushCargo(this.gs.state.resources, this.gs.credits);
+  }
+
+  _onMpInvite(inv) {
+    if (!inv?.serverId) return;
+    this.toasts.show('CREW INVITE',
+      `${inv.fromHandle || 'A friend'} invited you to ${inv.serverName || 'their expedition'}. Open SERVERS → JOIN.`,
+      'info', 7000);
+  }
+
+  _refreshMpHud() {
+    if (!this.mpHud) return;
+    if (!this.mp?.active) {
+      this.mpHud.classList.add('hidden');
+      return;
+    }
+    this.mpHud.classList.remove('hidden');
+    const name = this.mpHud.querySelector('.mp-name');
+    const roster = this.mpHud.querySelector('.mp-roster');
+    const cargo = this.mpHud.querySelector('.mp-cargo');
+    const n = this.mp.playerCount;
+    if (name) name.textContent = `${this.currentServer?.name || 'CO-OP'} · ${n} pilot${n === 1 ? '' : 's'}`;
+    if (roster) {
+      const peers = this.mp.peerList;
+      if (!peers.length) {
+        roster.innerHTML = `<div class="mp-peer dim">Waiting for crew… invite friends from the FRIENDS tab.</div>`;
+      } else {
+        roster.innerHTML = peers.map(p => {
+          const loc = p.location || (p.mode?.startsWith('surface') ? 'On surface' : 'In space');
+          return `<div class="mp-peer"><span class="mp-peer-dot"></span><b>${p.handle || 'Commander'}</b><span class="dim">${loc}</span></div>`;
+        }).join('');
+      }
+    }
+    if (cargo) {
+      const res = this.gs.state.resources || {};
+      const bits = Object.entries(res).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`);
+      cargo.classList.toggle('hidden', !bits.length);
+      cargo.innerHTML = bits.length
+        ? `<div class="mp-cargo-title">SHARED HOLD</div><div>${bits.join(' · ')}</div>`
+        : '';
+    }
+  }
+
+  _syncRemoteShips(peers) {
+    if (!this.scene) return;
+    const alive = new Set();
+    for (const [id, p] of peers) {
+      alive.add(id);
+      let remote = this.remoteShips.get(id);
+      if (!remote) {
+        const mesh = buildShipMesh();
+        mesh.group.scale.setScalar(1.05);
+        // Tint remote ships so they read as other pilots.
+        mesh.group.traverse(o => {
+          if (o.isMesh && o.material && o.material.color) {
+            o.material = o.material.clone();
+            o.material.color.offsetHSL(0.55, 0.15, 0.05);
+          }
+        });
+        const label = this._makeMpLabel(p.handle || 'Commander');
+        const root = new THREE.Group();
+        root.add(mesh.group);
+        root.add(label);
+        label.position.set(0, 3.2, 0);
+        this.scene.add(root);
+        // Also keep a copy ready for the surface scene.
+        remote = { root, mesh, label, surfaceRoot: null, last: p };
+        this.remoteShips.set(id, remote);
+      }
+      remote.last = p;
+      remote.label.material.map = this._mpLabelTexture(p.handle || 'Commander');
+      remote.label.material.needsUpdate = true;
+      this._placeRemoteShip(remote, p);
+    }
+    for (const [id, remote] of this.remoteShips) {
+      if (!alive.has(id)) {
+        remote.root.removeFromParent();
+        remote.surfaceRoot?.removeFromParent();
+        this.remoteShips.delete(id);
+      }
+    }
+  }
+
+  _placeRemoteShip(remote, p) {
+    if (!p?.pos) {
+      remote.root.visible = false;
+      if (remote.surfaceRoot) remote.surfaceRoot.visible = false;
+      return;
+    }
+    const onSurface = typeof p.mode === 'string' && p.mode.startsWith('surface');
+    const sameSurface = onSurface && this.mode === 'surface' && this.surface && p.bodyId === this.surface.id;
+    if (sameSurface) {
+      // Show them in the surface scene, hide the space ghost.
+      remote.root.visible = false;
+      if (!remote.surfaceRoot) {
+        const mesh = buildShipMesh();
+        mesh.group.scale.setScalar(1.05);
+        const label = this._makeMpLabel(p.handle || 'Commander');
+        label.position.set(0, 3.2, 0);
+        const root = new THREE.Group();
+        root.add(mesh.group); root.add(label);
+        this.surface.scene.add(root);
+        remote.surfaceRoot = root;
+        remote.surfaceLabel = label;
+      }
+      remote.surfaceRoot.visible = true;
+      remote.surfaceRoot.position.set(p.pos[0], p.pos[1], p.pos[2]);
+      if (p.quat) remote.surfaceRoot.quaternion.set(p.quat[0], p.quat[1], p.quat[2], p.quat[3]);
+    } else if (!onSurface && this.mode !== 'surface') {
+      remote.root.visible = true;
+      if (remote.surfaceRoot) remote.surfaceRoot.visible = false;
+      remote.root.position.set(p.pos[0], p.pos[1], p.pos[2]);
+      if (p.quat) remote.root.quaternion.set(p.quat[0], p.quat[1], p.quat[2], p.quat[3]);
+    } else {
+      // Different body / different mode — hide, presence still lists them.
+      remote.root.visible = false;
+      if (remote.surfaceRoot) remote.surfaceRoot.visible = false;
+    }
+  }
+
+  _makeMpLabel(text) {
+    const tex = this._mpLabelTexture(text);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    const s = new THREE.Sprite(mat);
+    s.scale.set(10, 2.4, 1);
+    return s;
+  }
+
+  _mpLabelTexture(text) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 64;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = 'rgba(6,14,28,0.75)';
+    ctx.roundRect?.(8, 10, 240, 44, 12); ctx.fill();
+    ctx.font = 'bold 22px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#7dffa8';
+    ctx.fillText(String(text).toUpperCase().slice(0, 18), 128, 34, 230);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  _clearRemoteShips() {
+    for (const [, r] of this.remoteShips) {
+      r.root?.removeFromParent();
+      r.surfaceRoot?.removeFromParent();
+    }
+    this.remoteShips.clear();
   }
 
   // ================================================================ FRIENDS
@@ -2450,12 +2853,27 @@ export class Game {
       this.toasts.show('SEARCH', 'Connect a server to find other commanders.', 'warn', 3600);
       return;
     }
+    // Searching works while connected even as a guest; friend-requests still
+    // need a signed-in account (enforced in addFriend).
     try {
+      this.toasts.show('SEARCH', 'Scanning commander registry…', 'info', 1200);
       const people = await this.backend.findPlayers(query.trim());
-      this.menu.showSearchResults(people.filter(p => p.id !== this.backend.userId));
-    } catch (e) { this.toasts.show('SEARCH FAILED', e.message, 'warn'); }
+      const filtered = people.filter(p => p.id !== this.backend.userId);
+      this.menu.showSearchResults(filtered);
+      if (!filtered.length) {
+        this.toasts.show('NO MATCH', `No commander matched “${query.trim()}”.`, 'warn', 2800);
+      }
+    } catch (e) {
+      this.toasts.show('SEARCH FAILED', e.message || String(e), 'warn', 4000);
+      // Still paint an empty result so the panel doesn't look stuck.
+      this.menu.showSearchResults([]);
+    }
   }
   async addFriend(person) {
+    if (!this.backend.signedIn) {
+      this.toasts.show('SIGN IN', 'Create or sign into an account to add friends.', 'warn', 3600);
+      return;
+    }
     try {
       await this.backend.addFriend(person.id);
       this.toasts.show('REQUEST SENT', `Waiting for ${person.handle} to accept.`, 'success');
@@ -2472,12 +2890,31 @@ export class Game {
     try { await this.backend.removeFriend(f.id); this.menu.renderFriends(); }
     catch (e) { this.toasts.show('FAILED', e.message, 'warn'); }
   }
-  inviteFriend(f) {
-    if (!this.currentServer) {
-      this.toasts.show('INVITE', 'Join a server first, then invite your friends to it.', 'warn', 3600);
+  async inviteFriend(f) {
+    if (!this.currentServer || !this.mp?.active) {
+      this.toasts.show('INVITE', 'Join or host a server first, then invite your friends to the crew.', 'warn', 4000);
       return;
     }
-    this.toasts.show('INVITE SENT', `${f.handle} was invited to ${this.currentServer.name}.`, 'success');
+    try {
+      // Live path: Realtime broadcast (instant if they're already online).
+      this.mp._emit?.('invite', {
+        from: this.backend.userId,
+        fromHandle: this.backend.handle,
+        serverId: this.currentServer.id,
+        serverName: this.currentServer.name,
+        to: f.id
+      });
+      // Durable path: presence stamp the friend will see on next poll.
+      if (this.backend.signedIn) {
+        try { await this.backend.sendInvite(f.id, this.currentServer); }
+        catch (e) { console.warn('invite rpc', e); }
+      }
+      this.toasts.show('INVITE SENT',
+        `${f.handle} was invited to ${this.currentServer.name}. They'll see it in FRIENDS / on join.`,
+        'success', 4200);
+    } catch (e) {
+      this.toasts.show('INVITE FAILED', e.message || String(e), 'warn');
+    }
   }
 
   // ================================================================ ROCKETS

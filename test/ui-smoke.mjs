@@ -25,10 +25,13 @@ dom.window.Element.prototype.getBoundingClientRect = function () {
 const noop = () => {};
 const ctx2d = () => ({
   fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '', globalAlpha: 1,
+  shadowColor: '', shadowBlur: 0,
   setTransform: noop, clearRect: noop, fillRect: noop, strokeRect: noop, fillText: noop,
   beginPath: noop, arc: noop, fill: noop, stroke: noop, moveTo: noop, lineTo: noop,
   save: noop, restore: noop, translate: noop, rotate: noop, scale: noop, closePath: noop,
   setLineDash: noop, drawImage: noop,
+  createRadialGradient: () => ({ addColorStop: noop }),
+  createLinearGradient: () => ({ addColorStop: noop }),
 });
 dom.window.HTMLCanvasElement.prototype.getContext = function () { return ctx2d(); };
 
