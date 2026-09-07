@@ -652,6 +652,13 @@ input.input, select.input {
 .form-status.error { color: var(--bad); }
 .form-status.ok { color: var(--good); }
 .btn-row.wrap { flex-wrap: wrap; }
+/* "Forgot password?" — a quiet text link under the sign-in form. */
+.btn-link {
+  background: none; border: none; padding: 10px 0 0; margin-top: 4px;
+  color: var(--dim); font-size: 12px; letter-spacing: 0.04em;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.btn-link:hover:not(:disabled) { background: none; color: var(--ink); }
 
 /* ---------- rocket workshop ---------- */
 .modal.vab .modal-panel { width: min(1240px, 97vw); max-width: none; height: min(90vh, 860px); }

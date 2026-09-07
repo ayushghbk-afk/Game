@@ -64,7 +64,7 @@ const {
 } = await import('../src/rockets/RocketParts.js');
 const { safeSpawn, insideSun, anchoredPosition, resolveAnchored, SUN_SAFE_RADIUS } = await import('../src/utils/SpawnSafety.js');
 const { ObjectStreamer } = await import('../src/world/ObjectStreamer.js');
-const { Backend } = await import('../src/net/Backend.js');
+const { Backend, siteUrl, parseAuthFragment } = await import('../src/net/Backend.js');
 const { BackButton } = await import('../src/ui/BackButton.js');
 const { UISound } = await import('../src/audio/UISound.js');
 const { AccountPanel, randomGuestName } = await import('../src/ui/AccountPanel.js');
@@ -511,6 +511,130 @@ await check('disconnect drops a custom project back to the default server', () =
 });
 
 // =====================================================================
+// The "verify email sends me to localhost:3000" bug. Supabase falls back to
+// the project's Site URL (localhost:3000 on a fresh project) unless the
+// sign-up request says where to come back to. The game must (a) always send
+// its own page as redirect_to, and (b) finish the sign-in when the player
+// lands back here with the session in the URL fragment.
+console.log('\n== EMAIL VERIFICATION LINK (redirect back to the game) ==');
+const fakeLoc = (href) => new URL(href);
+await check('siteUrl() is the current page without query/hash', () => {
+  assert(siteUrl(fakeLoc('https://user.github.io/Game/')) === 'https://user.github.io/Game/');
+  assert(siteUrl(fakeLoc('https://user.github.io/Game/?slot=1#foo')) === 'https://user.github.io/Game/', 'query/hash leaked');
+  assert(siteUrl(fakeLoc('https://user.github.io/Game/index.html')) === 'https://user.github.io/Game/', 'index.html not normalised');
+  assert(siteUrl(fakeLoc('http://localhost:5173/')) === 'http://localhost:5173/', 'dev server');
+  assert(siteUrl(fakeLoc('https://solar.example.com')) === 'https://solar.example.com/', 'bare origin needs a trailing slash');
+  assert(siteUrl(fakeLoc('file:///C:/games/solar/index.html')) === null, 'file:// must not be sent to Supabase');
+  assert(siteUrl(null) === null, 'no location → null (Node)');
+});
+await check('sign-up tells Supabase to redirect back to THIS page, never localhost:3000', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/signup', { body: { id: 'u9', email: 'new@b.c' } }]]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  const res = await be.signUp('new@b.c', 'secret123', 'NovaScout');
+  assert(res.confirmed === false, 'confirmation pending should be reported');
+  const c = calls.find(c => c.url.includes('/auth/v1/signup'));
+  const u = new URL(c.url);
+  const to = u.searchParams.get('redirect_to');
+  assert(to, 'redirect_to missing — Supabase would fall back to its Site URL (localhost:3000)');
+  assert(to === 'https://solar-odyssey.test/', 'redirect_to should be the game page, got ' + to);
+  assert(!/localhost:3000/.test(c.url), 'localhost:3000 leaked into the request');
+  assert(JSON.parse(c.body).data.handle === 'NovaScout', 'handle metadata lost');
+});
+await check('resend-confirmation and password-reset also carry redirect_to', async () => {
+  const calls = mockFetch([
+    ['/auth/v1/resend', { body: {} }],
+    ['/auth/v1/recover', { body: {} }]
+  ]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  await be.resendConfirmation('new@b.c');
+  await be.requestPasswordReset('new@b.c');
+  for (const path of ['/auth/v1/resend', '/auth/v1/recover']) {
+    const c = calls.find(c => c.url.includes(path));
+    assert(c && c.method === 'POST', path + ' not called');
+    assert(new URL(c.url).searchParams.get('redirect_to') === 'https://solar-odyssey.test/', path + ' missing redirect_to');
+  }
+  assert(JSON.parse(calls.find(c => c.url.includes('/resend')).body).type === 'signup', 'resend must be type=signup');
+  let msg = '';
+  try { await be.requestPasswordReset(''); } catch (e) { msg = e.message; }
+  assert(/email/i.test(msg), 'empty email should be rejected client-side');
+});
+await check('parseAuthFragment reads the implicit-flow hash Supabase sends back', () => {
+  const ok = parseAuthFragment('#access_token=AT&expires_in=3600&refresh_token=RT&token_type=bearer&type=signup');
+  assert(ok?.kind === 'session' && ok.type === 'signup', 'session not detected');
+  assert(ok.session.access_token === 'AT' && ok.session.refresh_token === 'RT', 'tokens wrong');
+  assert(ok.session.expires_at > Math.floor(Date.now() / 1000), 'expires_at not derived');
+  const rec = parseAuthFragment('#/access_token=AT&type=recovery');
+  assert(rec?.type === 'recovery', 'hash-router style "#/" prefix not tolerated');
+  const err = parseAuthFragment('#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired');
+  assert(err?.kind === 'error' && err.code === 'otp_expired', 'error not detected');
+  assert(err.message === 'Email link is invalid or has expired', 'error text not decoded: ' + err.message);
+  assert(parseAuthFragment('') === null && parseAuthFragment('#settings') === null && parseAuthFragment(undefined) === null, 'random hashes must be ignored');
+});
+await check('landing back from the link signs the player in and scrubs the tokens from the URL', async () => {
+  localStorage.clear();
+  const calls = mockFetch([
+    ['/auth/v1/user', { body: { id: 'u7', email: 'new@b.c', user_metadata: { handle: 'NovaScout' } } }],
+    ['/rest/v1/profiles', { body: [{ id: 'u7', handle: 'NovaScout' }] }]
+  ]);
+  const win = dom.window;
+  win.history.replaceState(null, '', '/Game/?keep=1');
+  win.location.hash = '#access_token=AT7&expires_in=3600&refresh_token=RT7&token_type=bearer&type=signup';
+  const be = new Backend();
+  assert(be.hasPendingEmailLink, 'constructor should have captured the fragment');
+  assert(win.location.hash === '', 'tokens must be scrubbed from the address bar immediately');
+  assert(win.location.pathname === '/Game/' && win.location.search === '?keep=1', 'path/query must survive the scrub: ' + win.location.href);
+  be.configure('https://demo.supabase.co', 'anon');
+  let authEvents = 0; be.on('auth', () => authEvents++);
+  const res = await be.completeEmailLink();
+  assert(res && !res.error, 'link should complete, got ' + JSON.stringify(res));
+  assert(res.type === 'signup' && res.user?.id === 'u7', 'result should describe the signed-in user');
+  assert(be.signedIn && be.userId === 'u7' && be.handle === 'NovaScout', 'player is not signed in');
+  assert(authEvents === 1, 'auth event should fire once');
+  const userCall = calls.find(c => c.url.includes('/auth/v1/user'));
+  assert(userCall.headers.Authorization === 'Bearer AT7', 'the token from the link must be used to fetch the user');
+  assert(!be.hasPendingEmailLink, 'pending link should be consumed');
+  assert(await be.completeEmailLink() === null, 'a second call is a no-op');
+  assert(new Backend().signedIn, 'session must be persisted across reloads');
+  win.history.replaceState(null, '', '/');
+});
+await check('an expired / already-used link explains itself instead of failing silently', async () => {
+  localStorage.clear();
+  const calls = mockFetch([]);
+  const win = dom.window;
+  win.location.hash = '#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired';
+  const be = new Backend();
+  assert(win.location.hash === '', 'error payload should be scrubbed too');
+  const res = await be.completeEmailLink();
+  assert(res?.error === 'otp_expired', 'error code lost: ' + JSON.stringify(res));
+  assert(/expired|already used/i.test(res.message) && /sign in/i.test(res.message), 'message should tell the player what to do: ' + res.message);
+  assert(calls.length === 0 && !be.signedIn, 'no request should be made for an error link');
+});
+await check('a link whose token the server rejects leaves the player signed out, with a readable message', async () => {
+  localStorage.clear();
+  mockFetch([['/auth/v1/user', { status: 401, body: { msg: 'invalid JWT' } }]]);
+  const win = dom.window;
+  win.location.hash = '#access_token=BAD&refresh_token=&type=signup';
+  const be = new Backend();
+  const res = await be.completeEmailLink();
+  assert(res?.error === 'session', 'expected a session error, got ' + JSON.stringify(res));
+  assert(/password/i.test(res.message), 'should suggest signing in with the password');
+  assert(!be.signedIn && !new Backend().signedIn, 'a broken session must not be persisted');
+});
+await check('ordinary page loads (no fragment) are untouched', async () => {
+  localStorage.clear();
+  const win = dom.window;
+  win.history.replaceState(null, '', '/Game/#settings');
+  const be = new Backend();
+  assert(!be.hasPendingEmailLink, 'a non-auth hash was mistaken for a link');
+  assert(win.location.hash === '#settings', 'non-auth hash must be left alone');
+  assert(await be.completeEmailLink() === null);
+  win.history.replaceState(null, '', '/');
+});
+
+// =====================================================================
 console.log('\n== BACK BUTTON = ESC ==');
 await check('Back closes a modal, then pauses, then releases the page', () => {
   const seen = [];
@@ -728,6 +852,93 @@ await check('the connect form validates before saving junk credentials', () => {
   panel.modal.body.querySelectorAll('button').forEach(b => { if (b.textContent === 'CONNECT') b.click(); });
   assert(panel.modal.body.querySelector('.form-status.error'), 'bad URL was not rejected');
   assert(be.url === original, 'junk credentials overwrote the server');
+});
+const flush = () => new Promise(r => setTimeout(r, 0));
+const clickBtn = (scope, label) => {
+  const b = [...scope.querySelectorAll('button')].find(x => x.textContent.trim() === label);
+  if (!b) throw new Error('no button ' + label);
+  b.click();
+};
+await check('after sign-up the player is told the email link brings them back signed in (not "sign in again")', async () => {
+  localStorage.clear();
+  mockFetch([
+    ['/auth/v1/signup', { body: { id: 'u1', email: 'cmdr@b.c' } }],
+    ['/auth/v1/resend', { body: {} }]
+  ]);
+  const be = new Backend();
+  const panel = new AccountPanel(root, {
+    backend: be, identity: () => ({ name: 'Cmdr' }), setIdentity: () => {}, toast: () => {}, onChanged: () => {}
+  });
+  panel.show();
+  panel.mode = 'signup'; panel.render();
+  const inputs = panel.modal.body.querySelectorAll('input');
+  inputs[1].value = 'cmdr@b.c'; inputs[2].value = 'secret123';
+  clickBtn(panel.modal.body, 'CREATE ACCOUNT');
+  await flush(); await flush();
+  const t = panel.modal.body.textContent;
+  assert(/CHECK YOUR EMAIL/.test(t), 'no check-your-email screen: ' + t);
+  assert(t.includes('cmdr@b.c'), 'should echo the address');
+  assert(/already signed in/i.test(t), 'copy should say the link signs them in');
+  assert(!/then sign in/i.test(t), 'stale "then sign in" instruction is back');
+  clickBtn(panel.modal.body, 'RESEND EMAIL');
+  await flush(); await flush();
+  assert(panel.modal.body.querySelector('.form-status.ok'), 'resend did not confirm');
+});
+await check('"email not confirmed" on sign-in points at the link instead of a raw API error', async () => {
+  localStorage.clear();
+  mockFetch([['/auth/v1/token', { status: 400, body: { error: 'invalid_grant', error_description: 'Email not confirmed' } }]]);
+  const panel = new AccountPanel(root, {
+    backend: new Backend(), identity: () => ({ name: 'Cmdr' }), setIdentity: () => {}, toast: () => {}, onChanged: () => {}
+  });
+  panel.show();
+  panel.mode = 'signin'; panel.render();
+  const inputs = panel.modal.body.querySelectorAll('input');
+  inputs[0].value = 'cmdr@b.c'; inputs[1].value = 'secret123';
+  clickBtn(panel.modal.body, 'SIGN IN');
+  await flush(); await flush();
+  const st = panel.modal.body.querySelector('.form-status.error');
+  assert(st && /confirm/i.test(st.textContent) && /link/i.test(st.textContent), 'unhelpful: ' + st?.textContent);
+});
+await check('forgot-password sends a recovery link that comes back to the game', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/recover', { body: {} }]]);
+  const panel = new AccountPanel(root, {
+    backend: new Backend(), identity: () => ({ name: 'Cmdr' }), setIdentity: () => {}, toast: () => {}, onChanged: () => {}
+  });
+  panel.show();
+  panel.mode = 'signin'; panel.render();
+  panel.modal.body.querySelector('input[type="email"]').value = 'cmdr@b.c';
+  clickBtn(panel.modal.body, 'Forgot password?');
+  assert(panel.mode === 'forgot', 'forgot screen not opened');
+  assert(panel.modal.body.querySelector('input[type="email"]').value === 'cmdr@b.c', 'email should carry over');
+  clickBtn(panel.modal.body, 'SEND LINK');
+  await flush(); await flush();
+  const c = calls.find(c => c.url.includes('/auth/v1/recover'));
+  assert(c && new URL(c.url).searchParams.get('redirect_to') === 'https://solar-odyssey.test/', 'recover link would not return to the game');
+  assert(panel.modal.body.querySelector('.form-status.ok'), 'no confirmation shown');
+});
+await check('the recovery link opens the new-password form and saves through PUT /auth/v1/user', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/user', { body: { id: 'u1', email: 'cmdr@b.c' } }]]);
+  const be = new Backend();
+  be.session = { access_token: 'tok', refresh_token: 'r', user: { id: 'u1' } };
+  let toasted = null;
+  const panel = new AccountPanel(root, {
+    backend: be, identity: () => ({ name: 'Cmdr' }), setIdentity: () => {}, toast: (t) => { toasted = t; }, onChanged: () => {}
+  });
+  panel.showPasswordReset();
+  assert(panel.visible && /NEW PASSWORD/.test(panel.modal.body.textContent), 'reset form not shown');
+  const inputs = panel.modal.body.querySelectorAll('input[type="password"]');
+  inputs[0].value = 'newsecret'; inputs[1].value = 'different';
+  clickBtn(panel.modal.body, 'SAVE PASSWORD');
+  assert(panel.modal.body.querySelector('.form-status.error'), 'mismatch not caught');
+  assert(calls.length === 0, 'mismatched passwords must not hit the server');
+  inputs[1].value = 'newsecret';
+  clickBtn(panel.modal.body, 'SAVE PASSWORD');
+  await flush(); await flush();
+  const c = calls.find(c => c.url.includes('/auth/v1/user'));
+  assert(c && c.method === 'PUT' && JSON.parse(c.body).password === 'newsecret', 'password not sent');
+  assert(toasted === 'PASSWORD UPDATED' && panel.mode === 'menu', 'success not reported');
 });
 
 // =====================================================================

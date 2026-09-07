@@ -22,6 +22,68 @@ function ls() {
 }
 
 /**
+ * The page the game is running on, without query string or hash — e.g.
+ * `https://user.github.io/Game/` or `http://localhost:5173/`. This is where
+ * Supabase must send the player back to after they click the "Confirm your
+ * email" / "Reset password" link.
+ *
+ * Without an explicit redirect target Supabase falls back to the project's
+ * "Site URL", which every new project ships as `http://localhost:3000` — so
+ * the verification link would land on a dead localhost page even though the
+ * account had in fact been confirmed. Computing it from `location` means
+ * GitHub Pages, a custom domain, `npm run dev` and `npm run preview` all just
+ * work without touching the dashboard.
+ *
+ * Returns null for `file://` and non-browser environments (Node tests):
+ * Supabase would reject a `null`/`file:` origin anyway, and omitting the
+ * parameter is the same behaviour as before.
+ */
+export function siteUrl(loc = (typeof location !== 'undefined' ? location : null)) {
+  if (!loc || !/^https?:$/.test(loc.protocol || '')) return null;
+  let path = loc.pathname || '/';
+  // Strip an explicit document name so a link to `.../index.html#access_token`
+  // and `.../#access_token` both come back to the same canonical page.
+  path = path.replace(/\/index\.html?$/i, '/');
+  return loc.origin + path;
+}
+
+/**
+ * Parse the fragment Supabase appends when it sends the player back after an
+ * email link (implicit flow): `#access_token=…&refresh_token=…&type=signup`.
+ * Errors come back the same way: `#error=access_denied&error_code=otp_expired
+ * &error_description=…`. Returns null when the hash is not an auth payload.
+ */
+export function parseAuthFragment(hash) {
+  const raw = String(hash || '').replace(/^#\/?/, '');
+  if (!raw) return null;
+  const params = new URLSearchParams(raw);
+  if (params.get('access_token')) {
+    const expiresIn = Number(params.get('expires_in')) || 3600;
+    const expiresAt = Number(params.get('expires_at')) || Math.floor(Date.now() / 1000) + expiresIn;
+    return {
+      kind: 'session',
+      type: params.get('type') || 'signup',
+      session: {
+        access_token: params.get('access_token'),
+        refresh_token: params.get('refresh_token') || null,
+        token_type: params.get('token_type') || 'bearer',
+        expires_in: expiresIn,
+        expires_at: expiresAt
+      }
+    };
+  }
+  if (params.get('error') || params.get('error_description') || params.get('error_code')) {
+    const desc = params.get('error_description') || params.get('error') || 'Authentication failed.';
+    return {
+      kind: 'error',
+      code: params.get('error_code') || params.get('error') || 'error',
+      message: desc
+    };
+  }
+  return null;
+}
+
+/**
  * Where the game connects by default. Priority:
  *   1. build-time env (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)
  *   2. the shipped default project (src/net/backendConfig.js)
@@ -50,6 +112,9 @@ export class Backend {
     this.profile = null;
     this._listeners = new Map();
     this._restore();
+    // Grab (and scrub) any auth tokens Supabase put in the URL fragment right
+    // away — before the Back-button history trap copies location.href.
+    this._pendingLink = this._captureEmailLink();
   }
 
   // ---------------------------------------------------------------- events
@@ -154,8 +219,22 @@ export class Backend {
   }
 
   // ---------------------------------------------------------------- auth
+  /**
+   * Where the email links (confirm / reset password) should bring the player
+   * back to: this very page. Sent as `redirect_to` on every auth call that
+   * triggers an email — the parameter the Supabase JS client sends for
+   * `emailRedirectTo` — so the project's default Site URL (localhost:3000 on
+   * a fresh project) is never used.
+   */
+  get redirectTo() { return siteUrl(); }
+
+  _redirectQuery() {
+    const to = this.redirectTo;
+    return to ? '?redirect_to=' + encodeURIComponent(to) : '';
+  }
+
   async signUp(email, password, handle) {
-    const body = await this._fetch('/auth/v1/signup', {
+    const body = await this._fetch('/auth/v1/signup' + this._redirectQuery(), {
       method: 'POST',
       body: JSON.stringify({ email, password, data: { handle } })
     });
@@ -168,6 +247,107 @@ export class Backend {
     }
     // Email confirmation is on for this project.
     return { confirmed: false };
+  }
+
+  /** Send the "confirm your email" mail again (sign-up was not confirmed). */
+  async resendConfirmation(email) {
+    if (!email) throw new Error('Enter your email address first.');
+    await this._fetch('/auth/v1/resend' + this._redirectQuery(), {
+      method: 'POST',
+      body: JSON.stringify({ type: 'signup', email })
+    });
+    return true;
+  }
+
+  /** Email a password-reset link that brings the player back to this page. */
+  async requestPasswordReset(email) {
+    if (!email) throw new Error('Enter your email address first.');
+    await this._fetch('/auth/v1/recover' + this._redirectQuery(), {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+    return true;
+  }
+
+  /** Set a new password for the signed-in user (after a recovery link). */
+  async updatePassword(password) {
+    if (!this.signedIn) throw new Error('Open the reset link from your email first.');
+    if (!password || password.length < 6) throw new Error('Use at least 6 characters.');
+    const user = await this._fetch('/auth/v1/user', {
+      method: 'PUT',
+      body: JSON.stringify({ password })
+    });
+    if (user?.id) {
+      this.session = { ...this.session, user };
+      this._persistSession();
+    }
+    return true;
+  }
+
+  /**
+   * Synchronous half of the email-link flow: read the auth payload out of the
+   * URL fragment and scrub it from the address bar + history entry right
+   * away, so a reload, bookmark, screenshot or the Back-button history trap
+   * (which copies location.href) never carries a live session.
+   * Returns the parsed payload (see parseAuthFragment) or null.
+   */
+  _captureEmailLink(win = (typeof window !== 'undefined' ? window : null)) {
+    const loc = win?.location;
+    let parsed = null;
+    try { parsed = parseAuthFragment(loc?.hash); } catch { parsed = null; }
+    if (!parsed) return null;
+    try {
+      win.history.replaceState(win.history.state, '', loc.pathname + loc.search);
+    } catch { try { loc.hash = ''; } catch { /* ignore */ } }
+    return parsed;
+  }
+
+  /** True when the page was opened from an email link that still needs finishing. */
+  get hasPendingEmailLink() { return !!this._pendingLink; }
+
+  /**
+   * Finish an email link. When the player clicks "Confirm your email" (or a
+   * password-reset link) Supabase verifies the token and redirects to
+   * `redirect_to` with the new session in the URL fragment:
+   *   https://…/Game/#access_token=…&refresh_token=…&type=signup
+   * Call this once on boot: it takes the tokens captured by the constructor
+   * (or reads them from `win` when one is passed), stores the session — the
+   * player is now signed in, no second sign-in needed — and reports what
+   * happened so the UI can say so.
+   *
+   * @returns {null | {type, user} | {error, message}}
+   */
+  async completeEmailLink(win) {
+    const parsed = win ? this._captureEmailLink(win) : this._pendingLink;
+    this._pendingLink = null;
+    if (!parsed) return null;
+
+    if (parsed.kind === 'error') {
+      const expired = /expired|invalid/i.test(parsed.code + ' ' + parsed.message);
+      return {
+        error: parsed.code,
+        message: expired
+          ? 'That email link has expired or was already used. Sign in — or request a new link from the ACCOUNT panel.'
+          : parsed.message
+      };
+    }
+    if (!this.configured) {
+      return { error: 'no_server', message: 'The link is valid but no game server is connected. Main menu → ACCOUNT → CONNECT SERVER, then sign in.' };
+    }
+    this.session = parsed.session;
+    try {
+      const user = await this._fetch('/auth/v1/user');
+      if (!user?.id) throw new Error('No user in response');
+      this.session = { ...this.session, user };
+      this._persistSession();
+      await this.ensureProfile();
+      this.emit('auth', this.user);
+      return { type: parsed.type, user: this.user };
+    } catch (e) {
+      this.session = null;
+      this._persistSession();
+      return { error: 'session', message: 'Could not finish signing you in from the email link (' + (e?.message || e) + '). Please sign in with your password.' };
+    }
   }
 
   async signIn(email, password) {

@@ -188,10 +188,34 @@ server list and shared rocket designs.
    It creates `profiles`, `saves`, `settings`, `friends`, `servers`, `presence`
    and `rockets`, turns on row-level security for all of them, and seeds the
    nine official regional gateways.
-3. In the game: **Main menu → ACCOUNT → CONNECT SERVER**, then paste your
+3. **Authentication → URL Configuration**: set **Site URL** to where the game
+   is hosted (e.g. `https://<user>.github.io/<repo>/`) and add it to
+   **Redirect URLs** too. For local development also add
+   `http://localhost:5173/**` and `http://localhost:4173/**`. See
+   [Email links](#email-links-confirm--reset-password) below for why.
+4. In the game: **Main menu → ACCOUNT → CONNECT SERVER**, then paste your
    **Project URL** and **anon public key** (Supabase → Project Settings → API).
    They are stored in your browser, never in the repo.
-4. **CREATE ACCOUNT** / **SIGN IN**, and turn on **Settings → Cloud sync**.
+5. **CREATE ACCOUNT** / **SIGN IN**, and turn on **Settings → Cloud sync**.
+
+### Email links (confirm / reset password)
+
+When a player creates an account, Supabase emails them a **Confirm your
+email** link. The game always tells Supabase to send the player **back to the
+page the game is running on** (`redirect_to` on the sign-up, resend and
+password-reset calls — computed from `location`, so GitHub Pages, a custom
+domain and `npm run dev` all work without code changes). Opening the link
+lands the player in the game **already signed in**; the tokens Supabase puts in
+the URL fragment are consumed and scrubbed from the address bar on boot.
+
+Supabase only honours `redirect_to` when the URL is on the project's
+**Redirect URLs** allow list — otherwise it silently falls back to the **Site
+URL**, which every new project ships as `http://localhost:3000`. That is what
+produces the classic "the verification link opens a dead `localhost:3000`
+page" bug. So if the link ever goes to the wrong place, fix the allow list
+(step 3 above); nothing in the game needs to change. Expired or already-used
+links are reported in-game with a **RESEND EMAIL** option, and **SIGN IN →
+Forgot password?** emails a reset link that returns to the game the same way.
 
 Prefer to bake the keys into a build? Set `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_ANON_KEY` before `npm run build`. The anon key is safe to ship —

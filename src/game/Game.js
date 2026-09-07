@@ -437,6 +437,33 @@ export class Game {
     this.mode = 'menu';
     this.menu.showMain();
     this._loop();
+    this._finishEmailLink();
+  }
+
+  /**
+   * The player arrived from a "confirm your email" / "reset password" link:
+   * Supabase redirected them back here with a session in the URL fragment.
+   * Turn it into a signed-in account and tell them so.
+   */
+  async _finishEmailLink() {
+    if (!this.backend?.hasPendingEmailLink) return;
+    let result = null;
+    try { result = await this.backend.completeEmailLink(); } catch (e) { console.warn('email link', e); }
+    if (!result) return;
+    if (result.error) {
+      this.toasts.show('EMAIL LINK', result.message, 'warn', 8000);
+      return;
+    }
+    this.menu.refreshAccount();
+    this.menu.renderTab();
+    if (result.type === 'recovery') {
+      this.toasts.show('PASSWORD RESET', 'You are signed in — choose a new password now.', 'success', 7000);
+      this.accountPanel.showPasswordReset();
+      this.modalOpen = 'account';
+    } else {
+      this.toasts.show('EMAIL CONFIRMED', 'Welcome aboard, ' + this.backend.handle + ' — you are signed in and cloud sync is ready.', 'success', 7000);
+    }
+    this._onAccountChanged();
   }
 
   _setupComposer() {

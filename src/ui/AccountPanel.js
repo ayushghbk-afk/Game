@@ -28,10 +28,12 @@ export class AccountPanel {
     this.hooks = hooks;
     this.modal = makeModal('account-modal', 'COMMANDER ACCOUNT');
     root.appendChild(this.modal.root);
-    this.mode = 'menu'; // menu | signin | signup | connect
+    this.mode = 'menu'; // menu | signin | signup | connect | forgot | newpass
   }
 
   show() { this.mode = 'menu'; this.render(); this.modal.root.classList.remove('hidden'); }
+  /** Opened by the password-recovery email link: the player is signed in and must pick a new password. */
+  showPasswordReset() { this.mode = 'newpass'; this.render(); this.modal.root.classList.remove('hidden'); }
   hide() { this.modal.root.classList.add('hidden'); }
   get visible() { return !this.modal.root.classList.contains('hidden'); }
 
@@ -63,6 +65,8 @@ export class AccountPanel {
     if (this.mode === 'signin') return this._renderAuth(false);
     if (this.mode === 'signup') return this._renderAuth(true);
     if (this.mode === 'connect') return this._renderConnect();
+    if (this.mode === 'forgot') return this._renderForgot();
+    if (this.mode === 'newpass') return this._renderNewPassword();
 
     // ---- overview ----
     const card = el('div', 'account-card');
@@ -196,9 +200,7 @@ export class AccountPanel {
         if (isSignUp) {
           const res = await this.hooks.backend.signUp(email.value.trim(), pass.value, handle.value.trim());
           if (!res.confirmed) {
-            status.textContent = 'Account created — check your email to confirm, then sign in.';
-            status.className = 'form-status ok';
-            go.disabled = false;
+            this._renderCheckEmail(email.value.trim(), status);
             return;
           }
         } else {
@@ -209,7 +211,7 @@ export class AccountPanel {
         this.render();
         this.hooks.onChanged?.();
       } catch (e) {
-        status.textContent = e?.message || String(e);
+        status.textContent = this._friendlyAuthError(e);
         status.className = 'form-status error';
         go.disabled = false;
       }
@@ -217,6 +219,126 @@ export class AccountPanel {
     go.addEventListener('click', submit);
     pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     row.append(go, alt, back);
+    b.appendChild(row);
+
+    if (!isSignUp) {
+      const forgot = el('button', 'btn btn-link', 'Forgot password?');
+      forgot.addEventListener('click', () => { this.prefillEmail = email.value.trim(); this.mode = 'forgot'; this.render(); });
+      b.appendChild(forgot);
+    }
+  }
+
+  /** Turn GoTrue's terse errors into something a player can act on. */
+  _friendlyAuthError(e) {
+    const msg = e?.message || String(e);
+    if (/email not confirmed/i.test(msg)) {
+      return 'This email is not confirmed yet — open the "Confirm your email" link we sent you (it brings you straight back here), or create the account again to get a new one.';
+    }
+    if (/invalid login credentials/i.test(msg)) return 'Wrong email or password.';
+    if (/already registered|already been registered/i.test(msg)) return 'That email already has an account — use SIGN IN.';
+    if (/password should be at least|weak password/i.test(msg)) return 'Password too short — use at least 6 characters.';
+    if (/rate limit|too many requests/i.test(msg)) return 'Too many attempts — wait a minute and try again.';
+    return msg;
+  }
+
+  /**
+   * Post-sign-up state: the account exists but Supabase wants the email
+   * confirmed first. The link in that mail brings the player back to THIS
+   * page already signed in (see Backend.redirectTo), so the copy must not
+   * tell them to "sign in" afterwards — they won't need to.
+   */
+  _renderCheckEmail(email, status) {
+    const b = this.body;
+    if (status) status.remove();
+    clearChildren(b);
+    b.appendChild(el('h3', 'form-heading', 'CHECK YOUR EMAIL'));
+    const intro = el('p', '');
+    intro.append('We sent a confirmation link to ');
+    intro.appendChild(el('b', '', '')).textContent = email;   // textContent: never render user input as HTML
+    intro.append('. Open it and you will land back in Solar Odyssey, already signed in — no second sign-in needed.');
+    b.appendChild(intro);
+    b.appendChild(el('p', 'dim tiny',
+      'Nothing there after a minute? Check the spam folder, or send it again. ' +
+      'The link is only valid for a limited time and works once.'));
+    const row = el('div', 'btn-row wrap');
+    const resend = el('button', 'btn', 'RESEND EMAIL');
+    const back = el('button', 'btn', 'BACK');
+    resend.addEventListener('click', async () => {
+      resend.disabled = true;
+      const st = this._status('Sending…');
+      try {
+        await this.hooks.backend.resendConfirmation(email);
+        st.textContent = 'Sent again — check your inbox.';
+        st.className = 'form-status ok';
+      } catch (e) {
+        st.textContent = e?.message || String(e);
+        st.className = 'form-status error';
+      }
+      setTimeout(() => { resend.disabled = false; }, 15000);
+    });
+    back.addEventListener('click', () => { this.mode = 'menu'; this.render(); });
+    row.append(resend, back);
+    b.appendChild(row);
+  }
+
+  _renderForgot() {
+    const b = this.body;
+    b.appendChild(el('h3', 'form-heading', 'RESET PASSWORD'));
+    b.appendChild(el('p', 'dim', 'We will email you a link. Opening it brings you back here, signed in, so you can choose a new password.'));
+    const email = this._input('email', 'commander@example.com', this.prefillEmail || '');
+    b.appendChild(this._row('Email', email));
+    const row = el('div', 'btn-row');
+    const go = el('button', 'btn btn-primary', 'SEND LINK');
+    const back = el('button', 'btn', 'BACK');
+    back.addEventListener('click', () => { this.mode = 'signin'; this.render(); });
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      const status = this._status('Contacting the relay…');
+      try {
+        await this.hooks.backend.requestPasswordReset(email.value.trim());
+        status.textContent = 'Sent — open the link in the email to continue.';
+        status.className = 'form-status ok';
+      } catch (e) {
+        status.textContent = e?.message || String(e);
+        status.className = 'form-status error';
+        go.disabled = false;
+      }
+    });
+    email.addEventListener('keydown', (e) => { if (e.key === 'Enter') go.click(); });
+    row.append(go, back);
+    b.appendChild(row);
+  }
+
+  _renderNewPassword() {
+    const b = this.body;
+    b.appendChild(el('h3', 'form-heading', 'CHOOSE A NEW PASSWORD'));
+    b.appendChild(el('p', 'dim', 'You are signed in through the reset link. Pick a new password to finish.'));
+    const pass = this._input('password', 'new password (6+ characters)');
+    const again = this._input('password', 'repeat it');
+    b.appendChild(this._row('New password', pass));
+    b.appendChild(this._row('Repeat', again));
+    const row = el('div', 'btn-row');
+    const go = el('button', 'btn btn-primary', 'SAVE PASSWORD');
+    const skip = el('button', 'btn', 'LATER');
+    skip.addEventListener('click', () => { this.mode = 'menu'; this.render(); });
+    const submit = async () => {
+      if (pass.value !== again.value) { this._status('The two passwords do not match.', 'error'); return; }
+      go.disabled = true;
+      const status = this._status('Saving…');
+      try {
+        await this.hooks.backend.updatePassword(pass.value);
+        this.hooks.toast?.('PASSWORD UPDATED', 'Use it next time you sign in.', 'success');
+        this.mode = 'menu';
+        this.render();
+      } catch (e) {
+        status.textContent = e?.message || String(e);
+        status.className = 'form-status error';
+        go.disabled = false;
+      }
+    };
+    go.addEventListener('click', submit);
+    again.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    row.append(go, skip);
     b.appendChild(row);
   }
 }
