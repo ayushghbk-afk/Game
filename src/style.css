@@ -670,11 +670,26 @@ input.input, select.input {
   padding: 11px 12px 8px; flex: none;
 }
 .vab-view-head .vab-col-title { margin-bottom: 0; flex: 1; }
+.vab-viewmode { display: flex; gap: 0; flex: 1; }
+.vab-viewmode .btn {
+  border-radius: 0; padding: 5px 11px; font-size: 10px;
+  border-right-width: 0;
+}
+.vab-viewmode .btn:first-child { border-radius: 5px 0 0 5px; }
+.vab-viewmode .btn:last-child { border-radius: 0 5px 5px 0; border-right-width: 1px; }
+.vab-viewmode .btn.active {
+  background: var(--accent); color: #04101f; border-color: var(--accent); font-weight: 700;
+}
 .vab-sym {
   display: flex; align-items: center; gap: 5px;
   font-size: 10px; letter-spacing: 0.18em; color: var(--dim); cursor: pointer;
 }
 .vab-sym input { accent-color: var(--accent); cursor: pointer; }
+.part-icon {
+  flex: none; width: 44px; height: 44px; align-self: center;
+  background: rgba(14, 28, 52, 0.7);
+  border: 1px solid rgba(110, 180, 255, 0.18); border-radius: 5px;
+}
 .vab-canvas {
   flex: 1; width: 100%; min-height: 0; display: block;
   touch-action: none; cursor: grab;

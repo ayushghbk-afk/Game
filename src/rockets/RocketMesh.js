@@ -3,22 +3,31 @@
 // literally what flies.
 import * as THREE from 'three';
 import { expandParts, getPart, isPlacementDesign } from './RocketParts.js';
+import { partTexture } from './PartTextures.js';
 
-function matFor(part) {
+export function matFor(part) {
+  // Procedural canvas textures carry the detail (rivets, stripes, ablative
+  // tiles…); most are near-white so `part.color` still tints the part.
+  const { map, tint } = partTexture(part);
+  const color = map && !tint ? 0xffffff : (part.color ?? 0xcccccc);
   return new THREE.MeshStandardMaterial({
-    color: part.color ?? 0xcccccc,
+    color,
+    map: map || null,
     roughness: part.cat === 'engine' ? 0.45 : 0.7,
     metalness: part.cat === 'engine' ? 0.8 : 0.35
   });
 }
 
-function geoFor(part) {
+export function geoFor(part) {
   const r = part.r || 0.5, h = part.h || 0.6;
   switch (part.shape) {
     case 'cone': return new THREE.ConeGeometry(r, h, 16);
     case 'nozzle': return new THREE.CylinderGeometry(r * 0.55, r, h, 16, 1, true);
     case 'taper': return new THREE.CylinderGeometry(r * 0.6, r, h, 16);
     case 'ring': return new THREE.CylinderGeometry(r, r, h, 16);
+    case 'sphere': return new THREE.SphereGeometry(r, 20, 14);
+    case 'dish': return new THREE.CylinderGeometry(r, r * 0.18, h, 18, 1, true);
+    case 'panel': return new THREE.BoxGeometry(r * 2.1, Math.max(h, 0.12), r * 0.3);
     case 'box': return new THREE.BoxGeometry(r * 1.6, h, r * 1.6);
     case 'cylinder':
     default: return new THREE.CylinderGeometry(r, r, h, 16);

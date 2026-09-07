@@ -20,6 +20,7 @@
 // RocketBuilder.js owns the surrounding DOM.
 import * as THREE from 'three';
 import { getPart } from './RocketParts.js';
+import { partTexture } from './PartTextures.js';
 import {
   resolveDrop, addPart, removePart, findPart, worldNodes,
   designBounds, partHeight, partRadius
@@ -28,8 +29,11 @@ import {
 const GROUND = 0;
 
 function matFor(part, opts = {}) {
+  const { map, tint } = partTexture(part);
+  const color = map && !tint ? 0xffffff : (part.color ?? 0xcccccc);
   return new THREE.MeshStandardMaterial({
-    color: part.color ?? 0xcccccc,
+    color,
+    map: map || null,
     roughness: part.cat === 'engine' ? 0.45 : 0.7,
     metalness: part.cat === 'engine' ? 0.8 : 0.35,
     transparent: !!opts.ghost,
@@ -45,6 +49,9 @@ export function geoFor(part) {
     case 'nozzle': return new THREE.CylinderGeometry(r * 0.55, r, h, 20, 1, true);
     case 'taper': return new THREE.CylinderGeometry(r * 0.6, r, h, 20);
     case 'ring': return new THREE.CylinderGeometry(r, r, h, 20);
+    case 'sphere': return new THREE.SphereGeometry(r, 22, 16);
+    case 'dish': return new THREE.CylinderGeometry(r, r * 0.18, h, 20, 1, true);
+    case 'panel': return new THREE.BoxGeometry(r * 2.1, Math.max(h, 0.12), r * 0.3);
     case 'box': return new THREE.BoxGeometry(r * 1.6, h, r * 1.6);
     case 'cylinder':
     default: return new THREE.CylinderGeometry(r, r, h, 20);
@@ -276,6 +283,7 @@ export class BuilderScene {
         }
         this.dragging = null;
         this._lastDrop = null;
+        this._wasSnapped = false;
         this._clearNodes();
       }
       if (this._pointers.size === 0) this._mode = null;
@@ -344,6 +352,10 @@ export class BuilderScene {
       const mesh = this.meshes.get(this.dragging.uid);
       if (mesh) mesh.position.set(...drop.pos);
     }
+    // Snap "click": the moment the ghost clips onto an attachment node the
+    // player hears/sees it lock in — mouse or touch, same feedback.
+    if (drop.snapped && !this._wasSnapped) this.hooks.sound?.('snap');
+    this._wasSnapped = drop.snapped;
     this._showNodes(drop);
   }
 
@@ -405,6 +417,7 @@ export class BuilderScene {
     if (!this.held) return;
     this._disposeMesh(this.held.ghost);
     this.held = null;
+    this._wasSnapped = false;
     this._clearNodes();
   }
 

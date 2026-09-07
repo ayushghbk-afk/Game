@@ -544,6 +544,9 @@ export class Menu {
     mkRow('Object streaming', mkSelect([
       ['low', 'LOW — fewest objects'], ['medium', 'BALANCED'], ['high', 'HIGH — richest world']
     ], s.streaming || 'medium', v => this.actions.settingsChanged({ streaming: v })));
+    mkRow('Rocket builder view', mkSelect([
+      ['3d', '3D ASSEMBLY PAD'], ['2d', '2D BLUEPRINT']
+    ], s.builderView === '2d' ? '2d' : '3d', v => this.actions.settingsChanged({ builderView: v })));
     mkRow('Cloud sync', mkToggle(s.cloudSync === true, v => this.actions.settingsChanged({ cloudSync: v })));
 
     m.body.appendChild(el('p', 'dim',
@@ -578,6 +581,7 @@ export class Menu {
         <tr><td>J</td><td>Mission log</td></tr>
         <tr><td>L</td><td>Land on any scanned body (cinematic descent → huge surface map)</td></tr>
         <tr><td>CO-OP</td><td>SERVERS → JOIN a gateway (or HOST your own). Friends on the same server share the map, see each other's ships and pool a shared cargo hold. INVITE from the FRIENDS tab.</td></tr>
+        <tr><td>ROCKETS</td><td>ROCKET WORKSHOP: pick 2D BLUEPRINT (side view) or 3D ASSEMBLY (orbitable pad) — parts clip onto glowing nodes with a snap. 55+ parts. SAVE keeps designs in your career; EXPORT / IMPORT use rocket files; CODE / PASTE CODE share a design with no server; SHARE publishes to the online list.</td></tr>
         <tr><td>V</td><td>Toggle chase / free camera</td></tr>
         <tr><td>ESC</td><td>Pause</td></tr>
         <tr><td>SURFACE</td><td>After landing: E near the outpost = enter it (rest · eat · maintain · drive the rover). E near a broken rover = repair it for credits. E near the parked rover/shuttle = board it. Drive the rover with W/A/S/D; it follows the terrain.</td></tr>

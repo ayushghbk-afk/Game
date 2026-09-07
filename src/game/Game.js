@@ -249,7 +249,19 @@ export class Game {
       backend: this.backend,
       toast: (t, m, k, d) => this.toasts.show(t, m, k, d),
       onLaunch: (design, analysis) => this.launchRocket(design, analysis),
-      onClose: () => { this.modalOpen = null; this.syncModalState(); }
+      onClose: () => { this.modalOpen = null; this.syncModalState(); },
+      settingsChanged: (patch) => this.applySettings(patch),
+      // Snap "click" feedback while dragging parts (mouse or touch):
+      // a soft tick the instant a part clips onto a node + a haptic pulse.
+      sound: (kind) => {
+        if (this.gs.state.settings.uiClicks !== false) {
+          if (kind === 'snap') this.audio.tick?.();
+          else this.audio.click?.();
+        }
+        if (this.gs.state.settings.haptics !== false && typeof navigator !== 'undefined') {
+          navigator.vibrate?.(kind === 'snap' ? 10 : 5);
+        }
+      }
     });
 
     this.touchCapable = isTouchDevice();
