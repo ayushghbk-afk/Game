@@ -266,13 +266,14 @@ export const DEFAULT_SETTINGS = {
   invertY: false,
   showFps: false,
   orbitLines: true,
-  fpsCap: 60
+  fpsCap: 60,
+  mobileControls: 'auto' // 'auto' | 'on' | 'off'
 };
 
 export function isTouchDevice() {
-  return (typeof window !== 'undefined') &&
-    (('ontouchstart' in window) || navigator.maxTouchPoints > 0) &&
-    window.matchMedia('(pointer: coarse)').matches;
+  if (typeof window === 'undefined') return false;
+  const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || coarse;
 }
 
 export function detectQuality() {

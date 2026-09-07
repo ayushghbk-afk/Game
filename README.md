@@ -18,7 +18,9 @@ mobile.
 `M` map · `I` info · `L` land · `V` camera · `B` brake · `J` missions · `H` help · `Esc` pause
 
 **Mobile:** left joystick = move, right joystick = look, plus BOOST / BRAKE /
-UP / DOWN and SCAN / MAP / E / TGT / LOG / CODEX buttons.
+UP / DOWN and SCAN / MAP / E / TGT / LOG / CODEX / PAUSE buttons. If your
+touchscreen isn't detected automatically, turn them on any time from
+**Settings → Mobile controls → ON**.
 
 ### The core loop
 

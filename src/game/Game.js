@@ -163,14 +163,19 @@ export class Game {
       onUndock: () => this.undock(),
       sound: (k) => this.audio[k === 'click' ? 'click' : 'levelUp']?.()
     });
-    this.touch = isTouchDevice();
+    this.touchCapable = isTouchDevice();
+    this.mobileActive = false;
     this.mobile = new MobileControls(this.root, this.controller.touch, {
       interact: () => this.doInteract(),
       scan: () => this.tryScan(),
       map: () => this.toggleMap(),
       target: () => this.cycleTarget(),
       missions: () => this.toggleModal('missions'),
-      codex: () => this.toggleModal('codex')
+      codex: () => this.toggleModal('codex'),
+      pause: () => {
+        if (this.modalOpen) this.closeModal();
+        else if (this.mode !== 'menu' && this.mode !== 'loading') this.togglePause();
+      }
     });
     this.fpsEl = el('div', 'fps-counter hidden');
     this.root.appendChild(this.fpsEl);
@@ -203,7 +208,7 @@ export class Game {
     });
     c.on('pointerlocklost', () => {
       if (this._expectedUnlock) { this._expectedUnlock = false; return; }
-      if (this.mode === 'space' && !this.modalOpen && !this.paused && !this.touch) this.togglePause();
+      if (this.mode === 'space' && !this.modalOpen && !this.paused && !this.mobileActive) this.togglePause();
     });
     c.requestPointerLock();
 
@@ -387,14 +392,44 @@ export class Game {
     this.menu.hideMain();
     this.menu.hidePause();
     this.hud.show();
-    if (this.touch) this.mobile.show();
     this.mode = 'space';
     this.paused = false;
     this.camera.fov = 70;
     this.camera.updateProjectionMatrix();
     this.missions?.reset();
     this.syncAnomalies();
-    if (!this.touch) this.canvas.requestPointerLock?.();
+    this._syncMobileControls();
+    if (!this.mobileActive) this.canvas.requestPointerLock?.();
+  }
+
+  _wantsMobileControls() {
+    const s = this.gs.state.settings.mobileControls;
+    return s === 'on' || (s !== 'off' && this.touchCapable);
+  }
+
+  _syncMobileControls() {
+    if (this.mode === 'menu' || this.mode === 'loading') {
+      if (this.mobileActive) {
+        this.mobileActive = false;
+        this.mobile.hide();
+      }
+      return;
+    }
+    const want = this._wantsMobileControls();
+    if (this.mobileActive === want) return;
+    this.mobileActive = want;
+    if (want) this.mobile.show();
+    else this.mobile.hide();
+    // Pointer lock belongs to desktop play only. When controls are shown,
+    // release the pointer so the player can press on-screen buttons.
+    if (this.mode === 'space' && !this.paused && !this.modalOpen) {
+      if (want) {
+        document.exitPointerLock?.();
+        this._expectedUnlock = true;
+      } else {
+        this.canvas.requestPointerLock?.();
+      }
+    }
   }
 
   /** Hide already-collected anomalies after a reload. */
@@ -407,6 +442,7 @@ export class Game {
   quitToMenu() {
     this.saveGame();
     this.hud.hide();
+    this.mobileActive = false;
     this.mobile.hide();
     this.closeModal();
     this.menu.hidePause();
@@ -432,7 +468,7 @@ export class Game {
     } else {
       this.menu.hidePause();
       this.modalOpen = null;
-      if (!this.touch && this.mode === 'space') this.canvas.requestPointerLock?.();
+      if (!this.mobileActive && this.mode === 'space') this.canvas.requestPointerLock?.();
     }
     this.audio.click();
   }
@@ -1041,7 +1077,7 @@ export class Game {
     this.dockPanel.hide();
     this.modalOpen = null;
     this.toasts.show('UNDOCKED', `Clear of ${this.dockingStation?.name || 'station'}.`, 'info', 1600);
-    if (!this.touch) this.canvas.requestPointerLock?.();
+    if (!this.mobileActive) this.canvas.requestPointerLock?.();
   }
 
   // ---- damage / death ----
@@ -1205,7 +1241,7 @@ export class Game {
       return;
     }
     const st = this.shipState;
-    if (this.cameraMode === 'free' && !this.touch) {
+    if (this.cameraMode === 'free' && !this.mobileActive) {
       const fc = this.freeCam;
       fc.yaw -= (input?.yawDelta || 0);
       fc.pitch = clamp(fc.pitch - (input?.pitchDelta || 0), -1.3, 1.3);
@@ -1248,7 +1284,7 @@ export class Game {
 
   _currentPrompt() {
     if (this.mode === 'surface') {
-      if (this.surface.landed && !this.surface.collected) return this.touch ? 'E — COLLECT SAMPLES' : 'E — COLLECT SAMPLES';
+      if (this.surface.landed && !this.surface.collected) return 'E — COLLECT SAMPLES';
       return '';
     }
     if (this.orbiting) {
@@ -1262,7 +1298,7 @@ export class Game {
     for (const an of this.solar.anomalies)
       if (!this.gs.state.anomalies.includes(an.cfg.id) && this.shipState.position.distanceTo(an.sprite.position) < 12)
         return 'E — INVESTIGATE ANOMALY';
-    if (this.miningTarget) return this.touch ? 'HOLD E — MINE' : 'HOLD E — MINE ASTEROID';
+    if (this.miningTarget) return this.mobileActive ? 'HOLD E — MINE' : 'HOLD E — MINE ASTEROID';
     const body = this._nearestBodyInSOI();
     if (body) return `E — ENTER ORBIT · ${body.name}`;
     return '';
@@ -1366,6 +1402,7 @@ export class Game {
     if (patch.bloom !== undefined || patch.quality !== undefined) this._setupComposer();
     if (patch.orbitLines !== undefined) this.solar?.setOrbitLinesVisible(s.orbitLines);
     if (patch.showFps !== undefined) this.fpsEl.classList.toggle('hidden', !s.showFps);
+    if (patch.mobileControls !== undefined) this._syncMobileControls();
     this.gs.save(this.shipSnapshot());
   }
 

@@ -3,7 +3,14 @@
 import './style.css';
 import { Game } from './game/Game.js';
 
+function hideBootError() {
+  document.getElementById('boot-error')?.remove();
+}
+
 function fatalError(title, msg) {
+  hideBootError();
+  // Don't duplicate error panels.
+  if (document.querySelector('.fatal-error')) return;
   const d = document.createElement('div');
   d.className = 'fatal-error';
   d.innerHTML = `<div class="fe-box"><h1>${title}</h1><p>${msg}</p></div>`;
@@ -11,19 +18,22 @@ function fatalError(title, msg) {
 }
 
 function webglAvailable() {
+  // Three.js r180+ (this project's renderer) requires WebGL 2 — simply
+  // having WebGL 1 is not enough and would create a blank/broken canvas.
   try {
     const c = document.createElement('canvas');
-    return !!(window.WebGLRenderingContext && (c.getContext('webgl2') || c.getContext('webgl')));
+    return !!(window.WebGL2RenderingContext && c.getContext('webgl2'));
   } catch { return false; }
 }
 
 window.addEventListener('error', (e) => {
   console.error(e.error || e.message);
+  if (!window.__SOLAR_BOOTED) window.__solarBootError?.((e?.message) || 'The game failed to start. Refresh the page to try again.');
 });
 
 async function start() {
   if (!webglAvailable()) {
-    fatalError('WEBGL UNAVAILABLE', 'Your browser cannot run WebGL, which this game requires. Try updating your browser or enabling hardware acceleration.');
+    fatalError('WEBGL2 UNAVAILABLE', 'Solar Odyssey needs WebGL 2. Try updating your browser, enabling hardware acceleration, or using a recent Chrome / Edge / Firefox / Safari.');
     return;
   }
   const canvas = document.getElementById('game-canvas');
@@ -31,6 +41,8 @@ async function start() {
   try {
     const game = new Game(canvas, root);
     await game.boot();
+    window.__SOLAR_BOOTED = true;
+    hideBootError();
   } catch (e) {
     console.error(e);
     fatalError('LAUNCH FAILURE', 'Something went wrong while starting the game. Please refresh the page. (' + (e?.message || e) + ')');

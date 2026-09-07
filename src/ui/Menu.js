@@ -182,6 +182,9 @@ export class Menu {
     ], s.quality, v => this.actions.settingsChanged({ quality: v })));
     mkRow('Bloom', mkToggle(s.bloom, v => this.actions.settingsChanged({ bloom: v })));
     mkRow('Orbit lines', mkToggle(s.orbitLines, v => this.actions.settingsChanged({ orbitLines: v })));
+    mkRow('Mobile controls', mkSelect([
+      ['auto', 'AUTO'], ['on', 'ON'], ['off', 'OFF']
+    ], s.mobileControls || 'auto', v => this.actions.settingsChanged({ mobileControls: v })));
     mkRow('FPS cap', mkSelect([['30', '30'], ['60', '60']], String(s.fpsCap), v => this.actions.settingsChanged({ fpsCap: parseInt(v) })));
     mkRow('Show FPS', mkToggle(s.showFps, v => this.actions.settingsChanged({ showFps: v })));
     mkRow('Invert Y', mkToggle(s.invertY, v => this.actions.settingsChanged({ invertY: v })));
@@ -218,6 +221,7 @@ export class Menu {
         <tr><td>L</td><td>Land (when orbiting Earth / Moon / Mars)</td></tr>
         <tr><td>V</td><td>Toggle chase / free camera</td></tr>
         <tr><td>ESC</td><td>Pause</td></tr>
+        <tr><td>TOUCH</td><td>On-screen joysticks & buttons — enable in Settings → Mobile controls</td></tr>
       </table>
       <p class="dim">Goal: explore, scan, mine, trade and upgrade — complete the mission chain all the way to Neptune.</p>`;
     m.root.classList.remove('hidden');
