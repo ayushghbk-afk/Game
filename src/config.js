@@ -315,7 +315,13 @@ export const DEFAULT_SETTINGS = {
   orbitLines: true,
   fpsCap: 60,
   mobileControls: 'auto', // 'auto' | 'on' | 'off'
-  aimAssist: true // FFM/PUBG-style auto-aim: gently pulls the nose toward the target
+  aimAssist: true, // FFM/PUBG-style auto-aim: gently pulls the nose toward the target
+  uiClicks: true,      // click/tap sound on every interactive element
+  haptics: true,       // short vibration on touch controls (Android)
+  backPauses: true,    // Android back button / browser Back = ESC
+  streaming: 'medium', // planet-surface object streaming budget
+  cloudSync: false,    // mirror saves + settings to the connected account
+  region: 'auto'       // preferred server region
 };
 
 export function isTouchDevice() {

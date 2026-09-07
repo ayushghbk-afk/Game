@@ -111,6 +111,10 @@ export class AudioManager {
 
   // ---- one-shots ----
   click() { if (this.ctx) this._osc('square', 1600, this.ctx.currentTime, 0.06, 0.08); }
+  /** Soft tick — sliders, text fields, list scrubbing. */
+  tick() { if (this.ctx) this._osc('sine', 2200, this.ctx.currentTime, 0.03, 0.04); }
+  /** Low thud — destructive buttons (delete / reset / new game). */
+  thud() { if (this.ctx) this._osc('triangle', 260, this.ctx.currentTime, 0.1, 0.09); }
   uiOpen() { if (this.ctx) this._osc('sine', 520, this.ctx.currentTime, 0.14, 0.1); }
   scan(duration = 1.6) {
     if (!this.ctx) return;

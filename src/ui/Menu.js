@@ -3,7 +3,7 @@ import { el, clearChildren, makeModal } from '../utils/UI.js';
 import { MISSIONS } from '../missions/MissionData.js';
 import { UPGRADES, QUALITY, LEVELS } from '../config.js';
 import { shipStats } from '../spacecraft/ShipUpgrades.js';
-import { hasStorage } from '../save/SaveSystem.js';
+import { hasStorage, SaveSystem } from '../save/SaveSystem.js';
 
 export class Menu {
   constructor(root, actions, gs) {
@@ -11,29 +11,60 @@ export class Menu {
     this.actions = actions; // {play, newGame, missions, ship, codex, settingsChanged, help, save, quitToMenu}
     this.overlay = el('div', 'main-menu');
     this.overlay.innerHTML = `
-      <div class="menu-inner">
-        <div class="menu-subtitle">DEEP SPACE EXPLORATION PROGRAM</div>
-        <h1 class="menu-title">SOLAR<br><span>ODYSSEY</span></h1>
-        <nav class="menu-nav">
-          <button class="menu-btn primary" id="mm-play">▶ LAUNCH</button>
-          <button class="menu-btn" id="mm-new">NEW GAME</button>
-          <button class="menu-btn" id="mm-missions">MISSIONS</button>
-          <button class="menu-btn" id="mm-ship">SHIP</button>
-          <button class="menu-btn" id="mm-codex">CODEX</button>
-          <button class="menu-btn" id="mm-settings">SETTINGS</button>
-          <button class="menu-btn" id="mm-help">HELP</button>
-        </nav>
-        <div class="menu-footer">${hasStorage ? '' : '⚠ storage unavailable — progress will not persist'} · v1.0</div>
+      <div class="menu-shell">
+        <aside class="menu-side">
+          <div class="menu-subtitle">DEEP SPACE EXPLORATION PROGRAM</div>
+          <h1 class="menu-title">SOLAR<br><span>ODYSSEY</span></h1>
+          <div class="menu-account" id="mm-account-strip">
+            <span class="ma-dot"></span>
+            <span class="ma-name">GUEST</span>
+            <button class="btn btn-small" id="mm-account">ACCOUNT</button>
+          </div>
+          <nav class="menu-nav">
+            <button class="menu-btn primary" id="mm-play">▶ LAUNCH</button>
+            <button class="menu-btn" id="mm-new">NEW CAREER</button>
+            <button class="menu-btn" id="mm-vab">🚀 ROCKET WORKSHOP</button>
+            <button class="menu-btn" id="mm-missions">MISSIONS</button>
+            <button class="menu-btn" id="mm-ship">SHIP</button>
+            <button class="menu-btn" id="mm-codex">CODEX</button>
+            <button class="menu-btn" id="mm-settings">SETTINGS</button>
+            <button class="menu-btn" id="mm-help">HELP</button>
+          </nav>
+          <div class="menu-footer">${hasStorage ? '' : '⚠ storage unavailable — progress will not persist'} · v2.0</div>
+        </aside>
+
+        <section class="menu-browser">
+          <div class="menu-tabs" role="tablist">
+            <button class="tab active" role="tab" data-tab="saves">MY CAREERS</button>
+            <button class="tab" role="tab" data-tab="servers">SERVERS</button>
+            <button class="tab" role="tab" data-tab="friends">FRIENDS</button>
+          </div>
+          <div class="menu-tabpanel" id="mm-panel-saves"></div>
+          <div class="menu-tabpanel hidden" id="mm-panel-servers"></div>
+          <div class="menu-tabpanel hidden" id="mm-panel-friends"></div>
+        </section>
       </div>`;
     root.appendChild(this.overlay);
 
-    this.overlay.querySelector('#mm-play').addEventListener('click', actions.play);
+    this.overlay.querySelector('#mm-play').addEventListener('click', () => actions.play());
     this.overlay.querySelector('#mm-new').addEventListener('click', () => this._confirmNewGame());
+    this.overlay.querySelector('#mm-vab').addEventListener('click', () => actions.rocketBuilder?.());
+    this.overlay.querySelector('#mm-account').addEventListener('click', () => actions.account?.());
     this.overlay.querySelector('#mm-missions').addEventListener('click', () => { this.showMissions(); });
     this.overlay.querySelector('#mm-ship').addEventListener('click', () => { this.showShip(); });
     this.overlay.querySelector('#mm-codex').addEventListener('click', actions.codex);
     this.overlay.querySelector('#mm-settings').addEventListener('click', () => { this.showSettings(); });
     this.overlay.querySelector('#mm-help').addEventListener('click', () => { this.showHelp(); });
+
+    this.tab = 'saves';
+    for (const t of this.overlay.querySelectorAll('.menu-tabs .tab')) {
+      t.addEventListener('click', () => this.selectTab(t.dataset.tab));
+    }
+    this.panels = {
+      saves: this.overlay.querySelector('#mm-panel-saves'),
+      servers: this.overlay.querySelector('#mm-panel-servers'),
+      friends: this.overlay.querySelector('#mm-panel-friends')
+    };
 
     // pause overlay
     this.pause = el('div', 'pause-overlay hidden');
@@ -42,6 +73,7 @@ export class Menu {
         <div class="pause-title">PAUSED</div>
         <button class="menu-btn primary" id="pz-resume">RESUME</button>
         <button class="menu-btn" id="pz-save">SAVE GAME</button>
+        <button class="menu-btn" id="pz-vab">🚀 ROCKET WORKSHOP</button>
         <button class="menu-btn" id="pz-settings">SETTINGS</button>
         <button class="menu-btn" id="pz-help">HELP</button>
         <button class="menu-btn" id="pz-quit">QUIT TO MENU</button>
@@ -49,6 +81,7 @@ export class Menu {
     root.appendChild(this.pause);
     this.pause.querySelector('#pz-resume').addEventListener('click', actions.resume);
     this.pause.querySelector('#pz-save').addEventListener('click', actions.save);
+    this.pause.querySelector('#pz-vab').addEventListener('click', () => actions.rocketBuilder?.());
     this.pause.querySelector('#pz-settings').addEventListener('click', () => { this.showSettings(); });
     this.pause.querySelector('#pz-help').addEventListener('click', () => { this.showHelp(); });
     this.pause.querySelector('#pz-quit').addEventListener('click', actions.quitToMenu);
@@ -67,15 +100,275 @@ export class Menu {
   }
 
   // ---- main menu visibility ----
-  showMain() { this.overlay.classList.remove('hidden'); this.pause.classList.add('hidden'); this.refreshPlayLabel(); }
+  showMain() {
+    this.overlay.classList.remove('hidden');
+    this.pause.classList.add('hidden');
+    this.refreshPlayLabel();
+    this.refreshAccount();
+    this.renderTab();
+  }
   hideMain() { this.overlay.classList.add('hidden'); }
   showPause() { this.pause.classList.remove('hidden'); }
   hidePause() { this.pause.classList.add('hidden'); }
 
   refreshPlayLabel() {
-    const has = hasStorage && !!this.gs.state.ship;
+    const has = hasStorage && SaveSystem.hasAnySave();
     const btn = this.overlay.querySelector('#mm-play');
     btn.innerHTML = has ? '▶ CONTINUE' : '▶ LAUNCH';
+  }
+
+  /** Identity strip: guest / signed-in handle + connection state. */
+  refreshAccount() {
+    const strip = this.overlay.querySelector('#mm-account-strip');
+    if (!strip) return;
+    const info = this.actions.accountInfo?.() || { name: 'GUEST', online: false, mode: 'guest' };
+    strip.querySelector('.ma-name').textContent = info.name;
+    strip.classList.toggle('online', !!info.online);
+    strip.querySelector('.ma-dot').title = info.online ? 'Signed in' : 'Guest — data stored in this browser';
+  }
+
+  // ---- browser tabs (careers · servers · friends) ----
+  selectTab(name) {
+    this.tab = name;
+    for (const t of this.overlay.querySelectorAll('.menu-tabs .tab'))
+      t.classList.toggle('active', t.dataset.tab === name);
+    for (const k in this.panels) this.panels[k].classList.toggle('hidden', k !== name);
+    this.renderTab();
+  }
+
+  renderTab() {
+    if (this.tab === 'saves') this.renderSaves();
+    else if (this.tab === 'servers') this.renderServers();
+    else this.renderFriends();
+  }
+
+  _timeAgo(ts) {
+    if (!ts) return 'never';
+    const s = Math.max(1, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.round(s / 60) + 'm ago';
+    if (s < 86400) return Math.round(s / 3600) + 'h ago';
+    return Math.round(s / 86400) + 'd ago';
+  }
+  _playTime(sec) {
+    const m = Math.round((sec || 0) / 60);
+    return m < 60 ? m + ' min' : (m / 60).toFixed(1) + ' h';
+  }
+
+  /** LIST OF PAST GAMES — every local save slot plus any cloud saves. */
+  renderSaves() {
+    const p = this.panels.saves;
+    clearChildren(p);
+    const slots = SaveSystem.listSlots();
+    const head = el('div', 'panel-head');
+    head.appendChild(el('div', 'panel-title', 'MY CAREERS'));
+    const newBtn = el('button', 'btn btn-small', '+ NEW');
+    newBtn.addEventListener('click', () => this._confirmNewGame());
+    const importBtn = el('button', 'btn btn-small', 'IMPORT');
+    importBtn.addEventListener('click', () => this.actions.importSave?.());
+    const row = el('div', 'panel-head-actions');
+    row.append(newBtn, importBtn);
+    head.appendChild(row);
+    p.appendChild(head);
+
+    if (!slots.length) {
+      p.appendChild(el('div', 'empty-state',
+        'No careers yet.<br><span class="dim">Press LAUNCH to begin your first expedition — progress saves automatically to this browser.</span>'));
+      return;
+    }
+
+    const active = SaveSystem.activeSlot();
+    for (const s of slots) {
+      const card = el('div', 'slot-card' + (s.slot === active ? ' active' : ''));
+      card.appendChild(el('div', 'slot-name', s.name || `Career ${s.slot + 1}`));
+      const meta = el('div', 'slot-meta');
+      meta.innerHTML = `
+        <span>LV ${s.level || 1}</span>
+        <span>${(s.credits || 0).toLocaleString()} CR</span>
+        <span>${s.location || 'Earth orbit'}</span>
+        <span>${this._playTime(s.playTime)}</span>
+        <span class="dim">${this._timeAgo(s.savedAt)}</span>`;
+      card.appendChild(meta);
+      const acts = el('div', 'slot-actions');
+      const load = el('button', 'btn btn-small btn-primary', 'CONTINUE');
+      load.addEventListener('click', (e) => { e.stopPropagation(); this.actions.loadSlot?.(s.slot); });
+      const cloud = el('button', 'btn btn-small', '☁ SYNC');
+      cloud.title = 'Upload this career to your account';
+      cloud.addEventListener('click', (e) => { e.stopPropagation(); this.actions.syncSlot?.(s.slot); });
+      const exp = el('button', 'btn btn-small', 'EXPORT');
+      exp.addEventListener('click', (e) => { e.stopPropagation(); this.actions.exportSlot?.(s.slot); });
+      const del = el('button', 'btn btn-small btn-danger', 'DELETE');
+      del.addEventListener('click', (e) => { e.stopPropagation(); this._confirmDeleteSlot(s); });
+      acts.append(load, cloud, exp, del);
+      card.appendChild(acts);
+      card.addEventListener('click', () => this.actions.loadSlot?.(s.slot));
+      p.appendChild(card);
+    }
+  }
+
+  _confirmDeleteSlot(slot) {
+    const m = this.confirmModal;
+    clearChildren(m.body);
+    m.body.appendChild(el('p', '', `Delete "${slot.name || 'career'}"? This cannot be undone.`));
+    const row = el('div', 'btn-row');
+    const yes = el('button', 'btn btn-danger', 'DELETE');
+    const no = el('button', 'btn', 'CANCEL');
+    yes.addEventListener('click', () => { m.close(); this.actions.deleteSlot?.(slot.slot); });
+    no.addEventListener('click', () => m.close());
+    row.append(yes, no);
+    m.body.appendChild(row);
+    m.root.classList.remove('hidden');
+  }
+
+  /** ONLINE SERVERS, grouped by region. */
+  renderServers() {
+    const p = this.panels.servers;
+    clearChildren(p);
+    const head = el('div', 'panel-head');
+    head.appendChild(el('div', 'panel-title', 'ONLINE SERVERS'));
+    const acts = el('div', 'panel-head-actions');
+    const regionSel = el('select', 'input input-small');
+    for (const [v, label] of [['auto', 'NEAREST'], ['all', 'ALL REGIONS'],
+      ['ap-south', 'ASIA — SOUTH'], ['ap-south-east', 'ASIA — SE'], ['ap-north-east', 'ASIA — NE'],
+      ['ap-southeast-2', 'OCEANIA'], ['eu-west', 'EUROPE — WEST'], ['eu-central', 'EUROPE — CENTRAL'],
+      ['us-east', 'US — EAST'], ['us-west', 'US — WEST'], ['sa-east', 'SOUTH AMERICA']]) {
+      const o = el('option', '', label); o.value = v; regionSel.appendChild(o);
+    }
+    regionSel.value = this._region || 'auto';
+    regionSel.addEventListener('change', () => { this._region = regionSel.value; this.renderServers(); });
+    const refresh = el('button', 'btn btn-small', '⟳ REFRESH');
+    refresh.addEventListener('click', () => this.renderServers(true));
+    const host = el('button', 'btn btn-small', '+ HOST');
+    host.addEventListener('click', () => this.actions.hostServer?.());
+    acts.append(regionSel, refresh, host);
+    head.appendChild(acts);
+    p.appendChild(head);
+
+    const list = el('div', 'server-list');
+    p.appendChild(list);
+    list.appendChild(el('div', 'empty-state dim', 'Scanning relay network…'));
+
+    Promise.resolve(this.actions.listServers?.(this._region || 'auto'))
+      .then((servers) => {
+        clearChildren(list);
+        if (!servers || !servers.length) {
+          list.appendChild(el('div', 'empty-state',
+            'No servers reachable.<br><span class="dim">Connect a server in ACCOUNT to see the live list, or keep playing solo — single-player needs no connection.</span>'));
+          return;
+        }
+        for (const s of servers) {
+          const row = el('div', 'server-row');
+          const ping = s.ping == null ? '—' : s.ping + 'ms';
+          const pingClass = s.ping == null ? '' : s.ping < 80 ? 'good' : s.ping < 180 ? 'ok' : 'bad';
+          row.innerHTML = `
+            <div class="sv-main">
+              <div class="sv-name">${s.official ? '★ ' : ''}${s.name}</div>
+              <div class="sv-sub dim">${(s.region || '').toUpperCase()} · ${(s.mode || 'coop').toUpperCase()}</div>
+            </div>
+            <div class="sv-players">${s.players ?? 0}/${s.capacity ?? 16}</div>
+            <div class="sv-ping ${pingClass}">${ping}</div>`;
+          const join = el('button', 'btn btn-small btn-primary', 'JOIN');
+          join.addEventListener('click', (e) => { e.stopPropagation(); this.actions.joinServer?.(s); });
+          row.appendChild(join);
+          list.appendChild(row);
+        }
+      })
+      .catch((e) => {
+        clearChildren(list);
+        list.appendChild(el('div', 'empty-state', 'Server list unavailable.<br><span class="dim">' + (e?.message || e) + '</span>'));
+      });
+  }
+
+  /** FRIENDS — requests, online status, invites. */
+  renderFriends() {
+    const p = this.panels.friends;
+    clearChildren(p);
+    const head = el('div', 'panel-head');
+    head.appendChild(el('div', 'panel-title', 'FRIENDS'));
+    const acts = el('div', 'panel-head-actions');
+    const search = el('input', 'input input-small');
+    search.placeholder = 'Find commander…';
+    const find = el('button', 'btn btn-small', 'SEARCH');
+    find.addEventListener('click', () => this.actions.findFriends?.(search.value));
+    search.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.actions.findFriends?.(search.value); });
+    acts.append(search, find);
+    head.appendChild(acts);
+    p.appendChild(head);
+
+    const list = el('div', 'friend-list');
+    p.appendChild(list);
+    list.appendChild(el('div', 'empty-state dim', 'Loading…'));
+
+    Promise.resolve(this.actions.listFriends?.())
+      .then((data) => {
+        clearChildren(list);
+        if (!data) {
+          list.appendChild(el('div', 'empty-state',
+            'Friends need an account.<br><span class="dim">ACCOUNT → SIGN IN to add friends, see who is online and share rocket designs.</span>'));
+          return;
+        }
+        const section = (title, rows, render) => {
+          if (!rows.length) return;
+          list.appendChild(el('div', 'list-section', title));
+          for (const f of rows) list.appendChild(render(f));
+        };
+        section('REQUESTS', data.incoming || [], (f) => {
+          const r = el('div', 'friend-row');
+          r.appendChild(el('div', 'fr-name', f.handle));
+          const accept = el('button', 'btn btn-small btn-primary', 'ACCEPT');
+          accept.addEventListener('click', () => this.actions.acceptFriend?.(f));
+          const deny = el('button', 'btn btn-small btn-danger', 'DECLINE');
+          deny.addEventListener('click', () => this.actions.removeFriend?.(f));
+          r.append(accept, deny);
+          return r;
+        });
+        section('FRIENDS', data.friends || [], (f) => {
+          const online = f.presence?.status && f.presence.status !== 'offline';
+          const r = el('div', 'friend-row' + (online ? ' online' : ''));
+          r.innerHTML = `<div class="fr-name"><span class="fr-dot"></span>${f.handle}</div>
+            <div class="fr-status dim">${online ? (f.presence.location || 'In game') : 'Offline'}</div>`;
+          const invite = el('button', 'btn btn-small', 'INVITE');
+          invite.addEventListener('click', () => this.actions.inviteFriend?.(f));
+          const rm = el('button', 'btn btn-small btn-danger', 'REMOVE');
+          rm.addEventListener('click', () => this.actions.removeFriend?.(f));
+          r.append(invite, rm);
+          return r;
+        });
+        section('PENDING', data.outgoing || [], (f) => {
+          const r = el('div', 'friend-row');
+          r.innerHTML = `<div class="fr-name">${f.handle}</div><div class="fr-status dim">Request sent</div>`;
+          const rm = el('button', 'btn btn-small btn-danger', 'CANCEL');
+          rm.addEventListener('click', () => this.actions.removeFriend?.(f));
+          r.appendChild(rm);
+          return r;
+        });
+        if (!list.children.length) {
+          list.appendChild(el('div', 'empty-state',
+            'No friends yet.<br><span class="dim">Search for a commander by name to send a request.</span>'));
+        }
+      })
+      .catch((e) => {
+        clearChildren(list);
+        list.appendChild(el('div', 'empty-state', 'Could not load friends.<br><span class="dim">' + (e?.message || e) + '</span>'));
+      });
+  }
+
+  /** Show search results in the friends panel. */
+  showSearchResults(people) {
+    this.selectTab('friends');
+    const list = this.panels.friends.querySelector('.friend-list');
+    if (!list) return;
+    clearChildren(list);
+    list.appendChild(el('div', 'list-section', 'SEARCH RESULTS'));
+    if (!people.length) { list.appendChild(el('div', 'empty-state dim', 'No commander found by that name.')); return; }
+    for (const p of people) {
+      const r = el('div', 'friend-row');
+      r.appendChild(el('div', 'fr-name', p.handle));
+      const add = el('button', 'btn btn-small btn-primary', '+ ADD');
+      add.addEventListener('click', () => this.actions.addFriend?.(p));
+      r.appendChild(add);
+      list.appendChild(r);
+    }
   }
 
   _confirmNewGame() {
@@ -192,8 +485,19 @@ export class Menu {
     mkRow('Music', mkSlider(s.music, v => this.actions.settingsChanged({ music: v })));
     mkRow('Sound FX', mkSlider(s.sfx, v => this.actions.settingsChanged({ sfx: v })));
 
+    mkRow('UI click sounds', mkToggle(s.uiClicks !== false, v => this.actions.settingsChanged({ uiClicks: v })));
+    mkRow('Haptics (touch)', mkToggle(s.haptics !== false, v => this.actions.settingsChanged({ haptics: v })));
+    mkRow('Back button = pause', mkToggle(s.backPauses !== false, v => this.actions.settingsChanged({ backPauses: v })));
+    mkRow('Object streaming', mkSelect([
+      ['low', 'LOW — fewest objects'], ['medium', 'BALANCED'], ['high', 'HIGH — richest world']
+    ], s.streaming || 'medium', v => this.actions.settingsChanged({ streaming: v })));
+    mkRow('Cloud sync', mkToggle(s.cloudSync === true, v => this.actions.settingsChanged({ cloudSync: v })));
+
+    m.body.appendChild(el('p', 'dim',
+      'Settings are saved in this browser the moment you change them, and mirrored to your account when cloud sync is on — they survive starting a new career.'));
+
     const danger = el('div', 'btn-row');
-    const reset = el('button', 'btn btn-danger', 'RESET SAVE');
+    const reset = el('button', 'btn btn-danger', 'ERASE THIS CAREER');
     reset.addEventListener('click', () => this._confirmNewGame());
     danger.appendChild(reset);
     m.body.appendChild(danger);

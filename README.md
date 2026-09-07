@@ -16,6 +16,8 @@ mobile.
 **Desktop:** `W/A/S/D` thrust · mouse look (click to capture) · `Shift` boost ·
 `Space`/`Ctrl` up/down · `E` interact (orbit / dock / mine) · `R` scan · `T` target ·
 `M` map · `I` info · `L` land · `V` camera · `B` brake · `J` missions · `H` help · `Esc` pause
+— **`Esc` and the Android/browser BACK button do the same thing**: close the
+topmost panel, or open the pause menu if nothing is open.
 — if the browser ever refuses the mouse capture, just **hold the left mouse
 button and move** to look (the game detects this and tells you once).
 
@@ -150,7 +152,12 @@ Feature placement follows published planetary science:
 | **Fast travel** | Discovered destinations can be warped to for fuel + a few seconds of travel |
 | **Time** | Accelerated sim clock (1 real s = 1 game min), 1×/10×/100× warp — orbits use the same clock |
 | **Audio** | Fully synthesized WebAudio: engine hum, boost, scanner, mining laser, mission chimes, alarms + generative ambient music. No audio files. |
-| **Save** | localStorage auto-save (45 s, on dock/mission/discovery) + manual save, load, reset |
+| **Save** | **Multi-slot careers** (6 local slots listed in the main menu), auto-save (45 s, on dock/mission/discovery) + manual save, export/import career files, optional **cloud sync** to your account |
+| **Settings** | Persisted on their own storage key — they survive NEW GAME, apply before any career loads, and mirror to your account when cloud sync is on |
+| **Account** | **Guest by default** (everything in browser storage, no sign-up) or an email account for cloud saves, friends and rocket sharing |
+| **Online** | Regional **server browser** (auto-detects your nearest region, shows player counts + estimated ping), host your own server, **friends list** with requests, online status and invites |
+| **Rockets** | **Rocket Workshop (VAB)**: 30+ parts across 7 categories, multi-stage stacks, live flight analysis (mass, thrust, Isp, TWR, per-stage delta-v), **launch from Earth to orbit** with a physical staged ascent, save / export / import / publish designs |
+| **Streaming** | Planet surfaces generate and erase world objects around the player in deterministic cells, so memory stays flat however far you drive |
 | **Performance** | LOD planets, quality presets LOW→ULTRA (auto-detects mobile), bloom toggle, pooled particles/asteroids, FPS cap 30/60, star density scaling |
 | **Robustness** | WebGL detection, storage-unavailable handling, corrupted-save recovery, texture fallbacks, no fatal crashes on missing assets (everything is procedural) |
 
@@ -158,6 +165,59 @@ Feature placement follows published planetary science:
 lights + clouds, gas-giant bands, rings, glows, nebulae) is painted procedurally
 on canvases at load time — that's why the whole game is ~195 KB gzipped and
 loads in seconds on a phone.
+
+---
+
+## ACCOUNTS, SAVES & ONLINE PLAY
+
+Solar Odyssey is **playable with no account and no server**. Out of the box you
+are a **guest**: a random commander name, careers, rocket designs and settings
+all stored in this browser's `localStorage`. Nothing is gated behind sign-up.
+
+Connecting a server adds the online layer: cloud saves, friends, the live
+server list and shared rocket designs.
+
+### Setting up the server (Supabase)
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Open **SQL Editor** and run [`supabase/schema.sql`](supabase/schema.sql).
+   It creates `profiles`, `saves`, `settings`, `friends`, `servers`, `presence`
+   and `rockets`, turns on row-level security for all of them, and seeds the
+   nine official regional gateways.
+3. In the game: **Main menu → ACCOUNT → CONNECT SERVER**, then paste your
+   **Project URL** and **anon public key** (Supabase → Project Settings → API).
+   They are stored in your browser, never in the repo.
+4. **CREATE ACCOUNT** / **SIGN IN**, and turn on **Settings → Cloud sync**.
+
+Prefer to bake the keys into a build? Set `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` before `npm run build`. The anon key is safe to ship —
+row-level security is what protects the data, and the schema above enforces
+"you can only read and write your own rows".
+
+### Careers
+
+The main menu lists **every past game** with its level, credits, location,
+play time and last-saved time. Each career lives in its own slot (6 max), so
+starting a new expedition never erases the old one. **EXPORT** writes a career
+file you can back up or hand to a friend; **IMPORT** reads one back.
+
+### Rocket Workshop
+
+**Main menu → 🚀 ROCKET WORKSHOP** (also on the pause menu). Stack parts bottom
+to top, drop in decouplers to make stages, and watch the analysis panel: it
+computes real mass, thrust, mass-flow-weighted Isp, thrust-to-weight and
+per-stage delta-v via the rocket equation, and refuses to launch anything that
+cannot fly. Reaching orbit needs **9,400 m/s of delta-v and TWR ≥ 1.15** — the
+same numbers the flight simulation uses, so the readout never lies.
+
+**🚀 LAUNCH FROM EARTH** flies the ascent for real: countdown, lift-off, gravity
+turn, staging as tanks run dry, and a circularisation burn. Make orbit and you
+are dropped into normal flight in Earth orbit with a mission payout; run out of
+propellant and you are told exactly how short you were.
+
+Designs **SAVE** to your career, **EXPORT/IMPORT** as `.rocket.json` files, and
+**SHARE** publicly (with an account) for other commanders to download from the
+**SHARED** tab.
 
 ---
 
@@ -242,10 +302,26 @@ The Vite build uses a **relative base (`./`)**, so it works from
     ├── missions/                # mission chain + manager
     ├── fx/Effects.js            # pooled particles, mining beam, warp/explosions
     ├── audio/AudioManager.js    # synthesized SFX + generative music
-    ├── save/SaveSystem.js       # localStorage
-    └── ui/                      # HUD, Menu, Map, PlanetInfo, MobileControls,
-                                 #   Codex, DockPanel, BasePanel, Toasts,
-                                 #   LoadingScreen
+    ├── save/SaveSystem.js       # multi-slot careers + standalone settings +
+    │                            #   guest identity, export/import
+    ├── net/Backend.js           # dependency-free Supabase client (auth, saves,
+    │                            #   settings, friends, servers, rockets)
+    ├── rockets/
+    │   ├── RocketParts.js       # parts catalogue + design analysis (staging,
+    │   │                        #   delta-v, TWR, validation, import/export)
+    │   ├── RocketMesh.js        # design → 3D model, with stage shedding
+    │   └── LaunchSequence.js    # physical Earth-to-orbit ascent simulation
+    ├── world/
+    │   └── ObjectStreamer.js    # deterministic cell streaming: generate near
+    │                            #   the player, erase (and free) behind them
+    ├── utils/SpawnSafety.js     # anchored save positions + "never spawn in
+    │                            #   the Sun" guard rails
+    ├── audio/UISound.js         # global click/tap feedback for every control
+    └── ui/                      # HUD, Menu (careers · servers · friends),
+                                 #   AccountPanel, RocketBuilder, BackButton,
+                                 #   Map, PlanetInfo, MobileControls, Codex,
+                                 #   DockPanel, BasePanel, Toasts, LoadingScreen
+├── supabase/schema.sql          # run once in your Supabase SQL editor
 ```
 
 ## PERFORMANCE NOTES
