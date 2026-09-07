@@ -509,6 +509,99 @@ await check('disconnect drops a custom project back to the default server', () =
   assert(be.url === defaultUrl, 'did not fall back to the default server');
   assert(new Backend().url === defaultUrl, 'custom credentials survived disconnect');
 });
+await check('appUrl is where the page actually runs (no localhost fallback)', () => {
+  const be = new Backend();
+  // Test DOM lives at https://solar-odyssey.test/ — the getter must mirror it.
+  assert(be.appUrl === 'https://solar-odyssey.test/', 'unexpected appUrl: ' + be.appUrl);
+});
+await check('signup sends redirect_to as a QUERY PARAM (GoTrue ignores the body)', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/signup', { body: { id: 'u-new' } }]]); // no access_token = confirmation on
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  const res = await be.signUp('a@b.c', 'password1', 'IronPilot');
+  const c = calls.find(c => c.url.includes('/auth/v1/signup'));
+  assert(c, 'signup never called');
+  assert(c.url.includes('redirect_to='), 'redirect_to missing from the signup URL');
+  const sent = decodeURIComponent(c.url.split('redirect_to=')[1]);
+  assert(sent === be.appUrl, 'redirect_to is not the app URL: ' + sent);
+  assert(!('redirect_to' in JSON.parse(c.body)), 'redirect_to in the JSON body would be ignored by GoTrue');
+  assert(res.confirmed === false && res.redirectTo === be.appUrl, 'confirmation result malformed');
+});
+await check('handleAuthRedirect recovers a signup session and cleans the URL', async () => {
+  localStorage.clear();
+  // No profile row yet → ensureProfile falls through to the POST that seeds
+  // one (from the signup metadata's handle).
+  const calls = mockFetch([
+    ['/auth/v1/user', { body: { id: 'u9', email: 'a@b.c', user_metadata: { handle: 'NovaRook' } } }],
+    ['/rest/v1/profiles', { body: [] }]
+  ]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  location.hash = '#access_token=at-1&expires_in=3600&refresh_token=rt-1&token_type=bearer&type=signup';
+  const ok = await be.handleAuthRedirect();
+  assert(ok === true, 'redirect not handled');
+  assert(be.signedIn && be.userId === 'u9', 'session not recovered');
+  assert(be.session.type === 'signup', 'auth type not recorded');
+  assert(location.hash === '', 'tokens left in the address bar: ' + location.hash);
+  const userCall = calls.find(c => c.url.includes('/auth/v1/user'));
+  assert(/Bearer at-1/.test(userCall.headers.Authorization), 'new token not used for the user fetch');
+  const profilePost = calls.find(c => c.method === 'POST' && c.url.includes('/profiles'));
+  assert(profilePost && JSON.parse(profilePost.body).handle === 'NovaRook', 'profile not seeded from signup metadata');
+  assert(new Backend().signedIn, 'recovered session did not survive a reload');
+});
+await check('handleAuthRedirect survives GoTrue double fragments (password reset)', async () => {
+  localStorage.clear();
+  mockFetch([['/auth/v1/user', { body: { id: 'u10', email: 'a@b.c' } }], ['/rest/v1/profiles', { body: [{ id: 'u10', handle: 'x' }] }]]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  // GoTrue appends "#params" to redirect_to even when it already has a
+  // fragment, producing two "#" in the URL.
+  location.hash = '#reset-password#access_token=at-2&expires_in=3600&refresh_token=rt-2&token_type=bearer&type=recovery';
+  const ok = await be.handleAuthRedirect();
+  assert(ok === true, 'double-fragment redirect not handled');
+  assert(be.session.type === 'recovery', 'recovery type not recorded');
+  assert(location.hash === '', 'tokens left in the address bar');
+});
+await check('handleAuthRedirect ignores a page with no auth fragment', async () => {
+  localStorage.clear();
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  location.hash = '';
+  assert((await be.handleAuthRedirect()) === false, 'false positive on a clean URL');
+  assert(!be.signedIn, 'phantom session created');
+});
+await check('password reset requests a redirect back to the game, fragment-free', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/recover', { body: {} }]]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  await be.sendPasswordReset('a@b.c');
+  const c = calls.find(c => c.url.includes('/auth/v1/recover'));
+  assert(c, 'recover never called');
+  assert(c.url.includes('redirect_to='), 'redirect_to missing from the recover URL');
+  const sent = decodeURIComponent(c.url.split('redirect_to=')[1]);
+  assert(sent === be.appUrl, 'reset redirect is not the app URL: ' + sent);
+  assert(!sent.includes('#'), 'a fragment in redirect_to would be doubled by GoTrue');
+  assert(JSON.parse(c.body).email === 'a@b.c', 'email missing from recover body');
+});
+await check('updatePassword PUTs the new password and clears the recovery flag', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/user', { body: { id: 'u10' } }]]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  be.session = { access_token: 'at-2', refresh_token: 'rt-2', type: 'recovery', user: { id: 'u10' } };
+  await be.updatePassword('brand-new-pw');
+  const c = calls.find(c => c.url.includes('/auth/v1/user') && c.method === 'PUT');
+  assert(c, 'no PUT /auth/v1/user');
+  assert(JSON.parse(c.body).password === 'brand-new-pw', 'password not sent');
+  assert(be.session.type === undefined, 'recovery flag not cleared');
+  let msg = '';
+  be.session = null;
+  try { await be.updatePassword('x'); } catch (e) { msg = e.message; }
+  assert(/sign in/i.test(msg), 'guest password change not rejected: ' + msg);
+});
+mockFetch([]); // reset fetch to a failing default for later sections
 
 // =====================================================================
 console.log('\n== BACK BUTTON = ESC ==');
@@ -728,6 +821,77 @@ await check('the connect form validates before saving junk credentials', () => {
   panel.modal.body.querySelectorAll('button').forEach(b => { if (b.textContent === 'CONNECT') b.click(); });
   assert(panel.modal.body.querySelector('.form-status.error'), 'bad URL was not rejected');
   assert(be.url === original, 'junk credentials overwrote the server');
+});
+await check('the signup notice tells players the email link signs them in', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/signup', { body: { id: 'u-new' } }]]); // confirmation on
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  const panel = new AccountPanel(root, {
+    backend: be, identity: () => ({ name: 'G' }), setIdentity: () => {}, toast: () => {}, onChanged: () => {}
+  });
+  panel.show();
+  panel.mode = 'signup';
+  panel.render();
+  const inputs = panel.modal.body.querySelectorAll('input');
+  inputs[0].value = 'VegaPilot'; inputs[1].value = 'a@b.c'; inputs[2].value = 'password1';
+  panel.modal.body.querySelectorAll('button').forEach(b => { if (b.textContent === 'CREATE ACCOUNT') b.click(); });
+  await new Promise(r => setTimeout(r, 30));
+  const ok = panel.modal.body.querySelector('.form-status.ok');
+  assert(ok && /confirmation email/.test(ok.textContent), 'no confirmation guidance: ' + (ok?.textContent || ''));
+  const c = calls.find(c => c.url.includes('/auth/v1/signup'));
+  assert(c && c.url.includes('redirect_to='), 'panel-driven signup lost the redirect_to param');
+});
+await check('FORGOT PASSWORD sends a recovery email for the typed address', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/recover', { body: {} }]]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  const panel = new AccountPanel(root, {
+    backend: be, identity: () => ({ name: 'G' }), setIdentity: () => {}, toast: () => {}, onChanged: () => {}
+  });
+  panel.show();
+  panel.mode = 'signin';
+  panel.render();
+  const click = (label) => panel.modal.body.querySelectorAll('button')
+    .forEach(b => { if (b.textContent === label) b.click(); });
+  click('FORGOT PASSWORD');                                   // no email yet
+  await new Promise(r => setTimeout(r, 10));
+  assert(panel.modal.body.querySelector('.form-status.error'), 'empty email was not rejected');
+  assert(!calls.length, 'a request fired for an empty email');
+  panel.modal.body.querySelector('input[type="email"]').value = 'lost@b.c';
+  click('FORGOT PASSWORD');
+  await new Promise(r => setTimeout(r, 30));
+  const c = calls.find(c => c.url.includes('/auth/v1/recover'));
+  assert(c && JSON.parse(c.body).email === 'lost@b.c', 'recovery request missing');
+  const okNote = panel.modal.body.querySelector('.form-status.ok');
+  assert(okNote && /reset link sent/i.test(okNote.textContent), 'no success feedback');
+});
+await check('a recovery session shows SET NEW PASSWORD and completes the reset', async () => {
+  localStorage.clear();
+  const calls = mockFetch([['/auth/v1/user', { body: { id: 'u10' } }]]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  be.session = { access_token: 'at-2', refresh_token: 'rt-2', type: 'recovery', user: { id: 'u10', email: 'a@b.c' } };
+  be.profile = { id: 'u10', handle: 'VegaPilot' };
+  const panel = new AccountPanel(root, {
+    backend: be, identity: () => ({ name: 'G' }), setIdentity: () => {}, toast: () => {}, onChanged: () => {}
+  });
+  panel.show();
+  const t = panel.modal.body.textContent;
+  assert(t.includes('SET NEW PASSWORD'), 'recovery prompt missing');
+  const np = panel.modal.body.querySelector('input[type="password"]');
+  np.value = 'short';
+  panel.modal.body.querySelectorAll('button').forEach(b => { if (b.textContent === 'SET NEW PASSWORD') b.click(); });
+  await new Promise(r => setTimeout(r, 10));
+  assert(panel.modal.body.querySelector('.form-status.error'), 'weak password accepted');
+  assert(!calls.some(c => c.method === 'PUT'), 'weak password reached the server');
+  np.value = 'long-enough-pw';
+  panel.modal.body.querySelectorAll('button').forEach(b => { if (b.textContent === 'SET NEW PASSWORD') b.click(); });
+  await new Promise(r => setTimeout(r, 30));
+  const put = calls.find(c => c.method === 'PUT' && c.url.includes('/auth/v1/user'));
+  assert(put && JSON.parse(put.body).password === 'long-enough-pw', 'new password not submitted');
+  assert(be.session.type === undefined, 'recovery flag still set after reset');
 });
 
 // =====================================================================
