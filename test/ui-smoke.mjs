@@ -219,10 +219,14 @@ check('ship panel shows upgrade tiers', () => {
 check('settings modal renders all controls', () => {
   menu.showSettings();
   const rows = menu.settingsModal.body.querySelectorAll('.settings-row');
-  assert(rows.length === 10, 'expected 10 setting rows, got ' + rows.length);
+  assert(rows.length >= 10, 'expected at least 10 setting rows, got ' + rows.length);
   const text = menu.settingsModal.body.textContent;
   assert(text.includes('Mobile controls'), 'mobile controls setting missing');
   assert(text.includes('Aim assist'), 'aim assist setting missing');
+  assert(text.includes('UI click sounds'), 'click-sound setting missing');
+  assert(text.includes('Back button'), 'back-button setting missing');
+  assert(text.includes('Object streaming'), 'streaming setting missing');
+  assert(text.includes('Cloud sync'), 'cloud sync setting missing');
   menu.settingsModal.close();
 });
 check('help modal renders controls table', () => {
@@ -231,7 +235,10 @@ check('help modal renders controls table', () => {
   menu.helpModal.close();
 });
 check('play label switches to CONTINUE when save exists', () => {
+  // The label now reflects real SAVE SLOTS (the careers list), not just a
+  // ship snapshot hanging off live state.
   gs.state.ship = { position: [0, 0, 0] };
+  gs.save({ position: [0, 0, 0], quaternion: [0, 0, 0, 1], fuel: 1, energy: 1, shield: 1, hull: 1 });
   menu.refreshPlayLabel();
   assert(menu.overlay.querySelector('#mm-play').textContent.includes('CONTINUE'));
   gs.state.ship = null;

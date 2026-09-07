@@ -24,6 +24,7 @@ export const ACHIEVEMENTS = [
   { id: 'astronaut', name: 'FIELD ASTRONAUT', desc: 'Live, eat and work at a planetary outpost.' },
   { id: 'walker', name: 'FIRST STEPS', desc: 'Suit up and walk on a planet on foot.' },
   { id: 'scavenger', name: 'SCAVENGER', desc: 'Recover 5 supply caches (spare parts) on planet surfaces.' },
+  { id: 'rocketeer', name: 'ROCKETEER', desc: 'Design a rocket and fly it from Earth to orbit.' },
   { id: 'logistics', name: 'LOGISTICS CHAIN', desc: 'Receive your first supply delivery from Earth.' }
 ];
 
@@ -44,9 +45,12 @@ export function freshState() {
     achievements: [],
     supplyOrders: [],    // orders placed from Earth to a planetary outpost
     collectedCaches: [], // "planetId:cacheIndex" — caches already recovered (no re-farming)
+    rockets: { designs: [], active: null, built: [] }, // VAB: saved rocket designs
     stats: { orbits: 0, landings: 0, docks: 0, mined: 0, jumps: 0, scans: 0,
              repairs: 0, caches: 0, deliveries: 0, evas: 0 },
     settings: { ...DEFAULT_SETTINGS },
+    careerName: null,    // display name in the careers list
+    careerStage: 'first-launch', // first-launch → explore (drives the intro flow)
     ship: null,          // filled by Game on save
     playTime: 0
   };
@@ -57,6 +61,9 @@ export class GameState {
     this.state = freshState();
     this.listeners = new Map();
     this.saveMeta = { lastSaved: 0 };
+    this.slot = SaveSystem.activeSlot();
+    // Settings are global (not per-career) — apply them immediately.
+    this.loadSettings();
   }
 
   on(evt, fn) { (this.listeners.get(evt) || this.listeners.set(evt, []).get(evt)).push(fn); }
@@ -188,30 +195,66 @@ export class GameState {
   }
 
   // ---- persistence ----
-  load() {
-    const data = SaveSystem.load();
-    if (data) {
-      const fresh = freshState();
-      this.state = {
-        ...fresh,
-        ...data,
-        // deep-merge so saves from before the survival/economy expansion
-        // keep their old fields while picking up food/parts + satiety defaults
-        resources: { ...fresh.resources, ...(data.resources || {}) },
-        survival: { ...fresh.survival, ...(data.survival || {}) },
-        settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) }
-      };
-      this.emit('loaded');
-      return true;
-    }
-    return false;
+  /** Merge a raw persisted blob into live state (used by disk and cloud loads). */
+  hydrate(data) {
+    if (!data || data.version !== 1) return false;
+    const fresh = freshState();
+    this.state = {
+      ...fresh,
+      ...data,
+      // deep-merge so saves from before the survival/economy expansion
+      // keep their old fields while picking up food/parts + satiety defaults
+      resources: { ...fresh.resources, ...(data.resources || {}) },
+      survival: { ...fresh.survival, ...(data.survival || {}) },
+      rockets: { ...fresh.rockets, ...(data.rockets || {}) },
+      // Settings live on their own storage key so they survive NEW GAME and
+      // apply before any career is loaded — the on-disk settings win over
+      // whatever was frozen into the save blob.
+      settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}), ...(SaveSystem.loadSettings() || {}) }
+    };
+    this.emit('loaded');
+    return true;
   }
-  save(shipSnapshot) {
-    if (shipSnapshot) this.state.ship = shipSnapshot;
-    const ok = SaveSystem.save(this.state);
-    if (ok) { this.saveMeta.lastSaved = Date.now(); this.emit('saved'); }
+
+  load(slot) {
+    if (slot !== undefined) this.slot = slot;
+    const data = SaveSystem.load(slot ?? this.slot);
+    return this.hydrate(data);
+  }
+
+  /** Load standalone settings (before any career exists). */
+  loadSettings() {
+    const s = SaveSystem.loadSettings();
+    if (s) this.state.settings = { ...DEFAULT_SETTINGS, ...s };
+    return this.state.settings;
+  }
+
+  /** Persist settings on their own key (+ notify listeners so the cloud can mirror). */
+  saveSettings() {
+    const ok = SaveSystem.saveSettings(this.state.settings);
+    this.emit('settings', this.state.settings);
     return ok;
   }
-  reset() { SaveSystem.reset(); this.state = freshState(); this.emit('reset'); }
+
+  save(shipSnapshot, meta = {}) {
+    if (shipSnapshot) this.state.ship = shipSnapshot;
+    const ok = SaveSystem.save(this.state, this.slot, {
+      level: this.level(),
+      ...meta
+    });
+    SaveSystem.saveSettings(this.state.settings);
+    if (ok) { this.saveMeta.lastSaved = Date.now(); this.emit('saved', this.slot); }
+    return ok;
+  }
+
+  /** Wipe the CURRENT career only — settings and other slots are untouched. */
+  reset() {
+    const settings = { ...this.state.settings };
+    SaveSystem.reset(this.slot);
+    this.state = freshState();
+    this.state.settings = settings;
+    this.emit('reset');
+  }
+
   get canSave() { return SaveSystem.hasStorage; }
 }

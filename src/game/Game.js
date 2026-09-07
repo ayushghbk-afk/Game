@@ -38,6 +38,14 @@ import { LoadingScreen } from '../ui/LoadingScreen.js';
 
 import { el, makeModal } from '../utils/UI.js';
 import { topVisibleModal } from '../utils/modalState.js';
+import { safeSpawn, anchoredPosition, resolveAnchored, insideSun } from '../utils/SpawnSafety.js';
+import { backend } from '../net/Backend.js';
+import { SaveSystem } from '../save/SaveSystem.js';
+import { UISound } from '../audio/UISound.js';
+import { BackButton } from '../ui/BackButton.js';
+import { RocketBuilder } from '../ui/RocketBuilder.js';
+import { AccountPanel, randomGuestName } from '../ui/AccountPanel.js';
+import { LaunchSequence } from '../rockets/LaunchSequence.js';
 import { formatDistance, formatSpeed } from '../planets/PlanetData.js';
 import { cargoUsed } from '../world/Resources.js';
 import { mulberry32, clamp } from '../utils/Noise.js';
@@ -128,7 +136,28 @@ export class Game {
       resume: () => this.togglePause(),
       save: () => this.saveGame(true),
       quitToMenu: () => this.quitToMenu(),
-      settingsChanged: (patch) => this.applySettings(patch)
+      settingsChanged: (patch) => this.applySettings(patch),
+      // --- account / online ---
+      account: () => this.openAccount(),
+      accountInfo: () => this.accountInfo(),
+      rocketBuilder: () => this.openRocketBuilder(),
+      // --- careers ---
+      loadSlot: (slot) => this.loadSlot(slot),
+      deleteSlot: (slot) => this.deleteSlot(slot),
+      syncSlot: (slot) => this.syncSlot(slot),
+      exportSlot: (slot) => this.exportSlot(slot),
+      importSave: () => this.importSaveFile(),
+      // --- servers ---
+      listServers: (region) => this.listServers(region),
+      joinServer: (s) => this.joinServer(s),
+      hostServer: () => this.hostServer(),
+      // --- friends ---
+      listFriends: () => this.listFriends(),
+      findFriends: (q) => this.findFriends(q),
+      addFriend: (p) => this.addFriend(p),
+      acceptFriend: (f) => this.acceptFriend(f),
+      removeFriend: (f) => this.removeFriend(f),
+      inviteFriend: (f) => this.inviteFriend(f)
     }, this.gs);
 
     this.mapView = new MapView(this.root, {
@@ -187,6 +216,32 @@ export class Game {
       orderItem: (id, qty) => this._orderSupply(id, qty)
     });
 
+    // ---- account / online identity ----
+    this.backend = backend;
+    this.identity = SaveSystem.loadIdentity() || { name: randomGuestName(), mode: 'guest', createdAt: Date.now() };
+    SaveSystem.saveIdentity(this.identity);
+
+    this.accountPanel = new AccountPanel(this.root, {
+      backend: this.backend,
+      identity: () => this.identity,
+      setIdentity: (patch) => {
+        this.identity = { ...this.identity, ...patch };
+        SaveSystem.saveIdentity(this.identity);
+      },
+      toast: (t, m, k) => this.toasts.show(t, m, k),
+      onChanged: () => { this.menu.refreshAccount(); this.menu.renderTab(); this._onAccountChanged(); },
+      syncAll: () => this.syncAllSaves()
+    });
+
+    // ---- rocket workshop (VAB) ----
+    this.rocketBuilder = new RocketBuilder(this.root, {
+      gs: this.gs,
+      backend: this.backend,
+      toast: (t, m, k, d) => this.toasts.show(t, m, k, d),
+      onLaunch: (design, analysis) => this.launchRocket(design, analysis),
+      onClose: () => { this.modalOpen = null; this.syncModalState(); }
+    });
+
     this.touchCapable = isTouchDevice();
     this.mobileActive = false;
     this.mobile = new MobileControls(this.root, this.controller.touch, {
@@ -240,6 +295,8 @@ export class Game {
       map: this.mapView.rootEl,
       docked: this.dockPanel.modal.root,
       base: this.basePanel.modal.root,
+      account: this.accountPanel.modal.root,
+      vab: this.rocketBuilder.modal.root,
       planetinfo: this.planetInfo.rootEl
     };
     this.syncModalState();
@@ -289,6 +346,26 @@ export class Game {
     };
     document.addEventListener('pointerdown', unlock);
     document.addEventListener('keydown', unlock);
+
+    // Click / tap feedback on EVERY interactive element (buttons, sliders,
+    // touch controls, list rows) — one capture listener instead of 80
+    // hand-written audio.click() calls that were easy to forget.
+    this.uiSound = new UISound(this.root, this.audio, {
+      enabled: () => this.gs.state.settings.uiClicks !== false && this.gs.state.settings.sfx > 0
+    });
+    // Short haptic buzz to go with it on touch devices.
+    this.root.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      if (this.gs.state.settings.haptics === false) return;
+      if (!e.target?.closest?.('button, .btn, .mc-btn, .mc-interact, [role="button"]')) return;
+      navigator.vibrate?.(12);
+    }, true);
+
+    // ANDROID BACK / browser Back behaves exactly like ESC: close the topmost
+    // panel, or open the pause menu. Only leaves the page when nothing is open
+    // and the player is sitting on the main menu.
+    this.backButton = new BackButton(() => this._handleBack());
+    this.backButton.arm();
 
     this.gs.on('achievement', (id) => {
       const a = ACHIEVEMENTS.find(x => x.id === id);
@@ -379,7 +456,11 @@ export class Game {
 
   // ================================================================ GAME FLOW
   newGame() {
+    // A new career gets its own slot so past games stay in the list.
+    const free = SaveSystem.firstFreeSlot();
+    if (free >= 0) { this.gs.slot = free; SaveSystem.setActiveSlot(free); }
     this.gs.reset();
+    this.gs.state.careerName = (this.backend?.signedIn ? this.backend.handle : this.identity?.name || 'Commander') + "'s career";
     this._grantStarterSupply();
     this.missions = new MissionManager(this.gs, {
       toast: (t, s, k) => this.toasts.show(t, s, k),
@@ -390,7 +471,29 @@ export class Game {
     this.audio.startMusic();
     this._spawnShip(true);
     this._enterPlay();
-    this.toasts.show('WELCOME, COMMANDER', 'Mission 1: FIRST FLIGHT — leave Earth behind.', 'info', 6000);
+    // A career BEGINS ON EARTH: your first job is to design a rocket and fly
+    // it to orbit. Everything else in the solar system opens up from there.
+    this.startCareerOnEarth();
+  }
+
+  /**
+   * Opening beat of a new career: you are on the pad at Earth with a grant,
+   * and the Rocket Workshop is already open. Build → launch → orbit → explore.
+   */
+  startCareerOnEarth() {
+    this.gs.state.careerStage = 'first-launch';
+    this.toasts.show('WELCOME TO THE PROGRAM',
+      'You are on the pad at Earth. Design your first rocket in the ROCKET WORKSHOP, then LAUNCH FROM EARTH to reach orbit.',
+      'info', 9000);
+    // Give them a moment to read it, then open the workshop with the starter.
+    setTimeout(() => {
+      if (this.mode === 'space' && this.gs.state.careerStage === 'first-launch') {
+        this.openRocketBuilder();
+        this.toasts.show('TIP',
+          'Press LOAD STARTER for a rocket that already reaches orbit, or drag your own together — then 🚀 LAUNCH FROM EARTH.',
+          'info', 8000);
+      }
+    }, 1200);
   }
 
   continueGame() {
@@ -404,7 +507,7 @@ export class Game {
     this.audio.startMusic();
     const snap = this.gs.state.ship;
     if (loaded && snap) {
-      this.shipState.position.fromArray(snap.position);
+      this._restoreShipPosition(snap);
       this.shipState.quaternion.fromArray(snap.quaternion);
       this.shipState.velocity.set(0, 0, 0);
       this.shipState.fuel = snap.fuel;
@@ -421,6 +524,30 @@ export class Game {
     if (loaded && snap) this.toasts.show('SYSTEMS RESTORED', `Welcome back, Commander — LV ${this.gs.level()}, ${this.gs.credits.toLocaleString()} CR`, 'info');
   }
 
+  /** Restore a saved ship position, never inside the Sun (see SpawnSafety). */
+  _restoreShipPosition(snap) {
+    const resolved = resolveAnchored(snap, (id) => {
+      const st = this.solar.stations.find(s => s.id === id);
+      if (st) return { position: st.group.position };
+      const body = this.solar.getBody(id);
+      return body ? { position: body.group.position } : null;
+    });
+    const station = this.solar.stations.find(s => s.id === (snap.lastStation || 'earth-station')) || this.solar.stations[0];
+    const earth = this.solar.getBody('earth');
+    const fallbacks = [
+      station ? { position: station.group.position } : null,
+      earth ? { position: earth.group.position } : null
+    ].filter(Boolean);
+    const safe = safeSpawn(resolved, fallbacks, this.solar.sunPosition);
+    this.shipState.position.set(safe.position.x, safe.position.y, safe.position.z);
+    if (safe.relocated) {
+      this.toasts.show('NAVIGATION RECOVERY',
+        `Your saved position was ${safe.reason} — the ship has been relocated to ${station?.name || 'Earth orbit'}.`,
+        'warn', 5200);
+    }
+    return safe;
+  }
+
   _spawnShip(fresh) {
     // clear any transient session state
     this.orbiting = null;
@@ -431,12 +558,19 @@ export class Game {
     this._insideSOI = new Set();
     const stats = shipStats(this.gs.state.upgrades);
     const station = this.solar.stations.find(s => s.id === 'earth-station');
-    const base = station ? station.group.position.clone() : this.solar.getBody('earth').group.position.clone();
-    this.shipState.position.copy(base).add(new THREE.Vector3(4, 2.5, 9));
+    const earth = this.solar.getBody('earth');
+    const base = station ? station.group.position.clone() : earth.group.position.clone();
+    const wanted = base.clone().add(new THREE.Vector3(4, 2.5, 9));
+    // Guard rail: if the station/planet lookup ever fails, `base` would be the
+    // origin — which is the middle of the Sun. safeSpawn() never allows that.
+    const safe = safeSpawn(wanted, [
+      station ? { position: station.group.position } : null,
+      earth ? { position: earth.group.position } : null
+    ].filter(Boolean), this.solar.sunPosition);
+    this.shipState.position.set(safe.position.x, safe.position.y, safe.position.z);
     this.shipState.quaternion.identity();
     // look back at Earth
-    const earth = this.solar.getBody('earth').group.position;
-    const m = new THREE.Matrix4().lookAt(this.shipState.position, earth, new THREE.Vector3(0, 1, 0));
+    const m = new THREE.Matrix4().lookAt(this.shipState.position, earth.group.position, new THREE.Vector3(0, 1, 0));
     this.shipState.quaternion.setFromRotationMatrix(m);
     this.shipState.velocity.set(0, 0, 0);
     this.shipState.fuel = stats.fuelCapacity;
@@ -476,6 +610,8 @@ export class Game {
     this.syncAnomalies();
     this._syncMobileControls();
     this.syncModalState(); // never carry stale modal state into flight
+    this.backButton?.arm();
+    if (this.backend?.signedIn) this.backend.setPresence(this.currentServer?.id, 'in-game', this.currentLocation()).catch(() => {});
     if (!this.mobileActive) this.controller.tryRequestPointerLock();
   }
 
@@ -597,6 +733,8 @@ export class Game {
     this.menu.helpModal.close();
     this.menu.confirmModal.close();
     this.confirmM.close();
+    this.accountPanel.hide();
+    this.rocketBuilder.modal.root.classList.add('hidden');
     if (this.modalOpen === 'pause') {
       this.menu.hidePause();
       this.paused = false;
@@ -650,6 +788,7 @@ export class Game {
       if (this.mode === 'menu') this._updateMenuCam(step);
       else if (this.mode === 'space') this._updateSpace(step);
       else if (this.mode === 'surface') this._updateSurface(step);
+      else if (this.mode === 'launch') this._updateLaunch(step);
     }
     this._lastStep = step;
 
@@ -1970,7 +2109,7 @@ export class Game {
   }
 
   // ================================================================ SETTINGS / SAVE
-  applySettings(patch) {
+  applySettings(patch, opts = {}) {
     Object.assign(this.gs.state.settings, patch);
     const s = this.gs.state.settings;
     this.audio.setVolumes(s.music, s.sfx);
@@ -1988,7 +2127,17 @@ export class Game {
     if (patch.orbitLines !== undefined) this.solar?.setOrbitLinesVisible(s.orbitLines);
     if (patch.showFps !== undefined) this.fpsEl.classList.toggle('hidden', !s.showFps);
     if (patch.mobileControls !== undefined) this._syncMobileControls();
-    this.gs.save(this.shipSnapshot());
+    if (patch.streaming !== undefined) this.surface?.streamer?.setQuality(s.streaming);
+
+    // Settings live on their own storage key, so they persist even when there
+    // is no career yet and survive starting a new one.
+    this.gs.saveSettings();
+    if (this.mode !== 'menu' && this.mode !== 'loading') this.gs.save(this.shipSnapshot());
+
+    // Mirror to the account when cloud sync is on.
+    if (!opts.skipCloud && s.cloudSync && this.backend?.signedIn) {
+      this.backend.pushSettings(s).catch((e) => console.warn('settings sync', e));
+    }
   }
 
   _rebuildWorld() {
@@ -2012,20 +2161,453 @@ export class Game {
     this.toasts.show('GRAPHICS', `Quality: ${this.quality.toUpperCase()}`, 'info', 2000);
   }
 
+  /** Every body/station the ship could sensibly be parked next to. */
+  _anchorList() {
+    const list = [];
+    for (const st of this.solar?.stations || []) list.push({ id: st.id, position: st.group.position });
+    for (const [id, body] of this.solar?.planets || []) list.push({ id, position: body.group.position });
+    return list;
+  }
+
   shipSnapshot() {
     const st = this.shipState;
+    // Positions are saved RELATIVE to the nearest body (see SpawnSafety):
+    // planets orbit, so absolute coordinates rot and used to strand reloaded
+    // players in deep space — or, at the origin, inside the Sun.
+    const anchored = anchoredPosition(st.position, this._anchorList());
     return {
-      position: st.position.toArray(),
+      position: st.position.toArray(),   // legacy field, kept for old clients
+      anchor: anchored.anchor,
+      offset: anchored.offset,
       quaternion: st.quaternion.toArray(),
       fuel: st.fuel, energy: st.energy, shield: st.shield, hull: st.hull,
       lastStation: st.lastStation
     };
   }
 
+  /** Human-readable "where am I" used in the careers list. */
+  currentLocation() {
+    if (this.mode === 'surface' && this.surface) return (this.surface.cfg?.name || 'Surface') + ' surface';
+    if (this.mode === 'launch') return 'Launch pad';
+    if (this.modalOpen === 'docked' && this.dockingStation) return this.dockingStation.name;
+    if (this.orbiting) return (this.orbiting.cfg?.name || 'Planet') + ' orbit';
+    if (this.target) return 'En route to ' + this.target.name;
+    return 'Deep space';
+  }
+
   saveGame(manual) {
     if (!this.gs.canSave) { if (manual) this.toasts.show('SAVE', 'Storage unavailable in this browser.', 'warn'); return; }
-    const ok = this.gs.save(this.shipSnapshot());
-    if (manual) this.toasts.show(ok ? 'GAME SAVED' : 'SAVE FAILED', ok ? 'Progress stored locally.' : 'Storage error.', ok ? 'success' : 'warn', 2200);
+    const ok = this.gs.save(this.shipSnapshot(), {
+      name: this.gs.state.careerName || SaveSystem.meta(this.gs.slot)?.name || (this.identity?.name + "'s career"),
+      location: this.currentLocation()
+    });
+    // Cloud mirror (fire-and-forget — never blocks or breaks local saving).
+    if (ok && this.gs.state.settings.cloudSync && this.backend?.signedIn) {
+      this.backend.pushSave(this.gs.slot, SaveSystem.meta(this.gs.slot)?.name || 'Career', this.gs.state, {
+        playTime: this.gs.state.playTime, credits: this.gs.credits, level: this.gs.level()
+      }).catch(() => {});
+    }
+    if (manual) this.toasts.show(ok ? 'GAME SAVED' : 'SAVE FAILED',
+      ok ? (this.gs.state.settings.cloudSync && this.backend?.signedIn ? 'Progress stored locally and in the cloud.' : 'Progress stored in this browser.')
+         : 'Storage error.', ok ? 'success' : 'warn', 2200);
+  }
+
+
+  // ================================================================ BACK / ESC
+  /**
+   * One place that decides what "go back" means. Used by ESC, by the Android
+   * hardware Back button and by the on-screen pause button, so all three can
+   * never disagree.
+   * @returns true when the press was consumed.
+   */
+  _handleBack() {
+    if (this.gs.state.settings.backPauses === false && this.mode !== 'menu') return false;
+    this.syncModalState();
+    if (this.modalOpen) { this.closeModal(); return true; }
+    if (this.mode === 'space' || this.mode === 'surface' || this.mode === 'launch') {
+      this.togglePause();
+      return true;
+    }
+    if (this.mode === 'menu') {
+      // On the main menu, Back backs out of a browser tab first.
+      if (this.menu.tab !== 'saves') { this.menu.selectTab('saves'); return true; }
+      return false; // let the browser leave the page
+    }
+    return true;
+  }
+
+  // ================================================================ ACCOUNT
+  accountInfo() {
+    return {
+      name: this.backend.signedIn ? this.backend.handle : this.identity.name,
+      online: this.backend.signedIn,
+      connected: this.backend.configured,
+      mode: this.backend.signedIn ? 'account' : 'guest'
+    };
+  }
+
+  openAccount() {
+    this.accountPanel.show();
+    this.modalOpen = 'account';
+  }
+
+  async _onAccountChanged() {
+    if (!this.backend.signedIn) return;
+    // Pull cloud settings (they win — that's the point of syncing) and
+    // announce any cloud careers the player can restore.
+    try {
+      const remote = await this.backend.pullSettings();
+      if (remote) {
+        this.applySettings(remote, { silent: true, skipCloud: true });
+        this.toasts.show('SETTINGS SYNCED', 'Your preferences were restored from your account.', 'info', 3000);
+      }
+      const saves = await this.backend.listSaves();
+      if (saves.length) {
+        this.toasts.show('CLOUD SAVES', `${saves.length} career${saves.length > 1 ? 's' : ''} available in your account.`, 'info', 4000);
+      }
+      this.backend.setPresence(null, 'online', 'Main menu').catch(() => {});
+    } catch (e) { console.warn('account sync', e); }
+  }
+
+  // ================================================================ CAREERS
+  loadSlot(slot) {
+    this.gs.slot = slot;
+    SaveSystem.setActiveSlot(slot);
+    this.continueGame();
+  }
+
+  deleteSlot(slot) {
+    SaveSystem.reset(slot);
+    if (this.backend.signedIn) this.backend.deleteSave(slot).catch(() => {});
+    this.toasts.show('CAREER DELETED', 'That save slot is now empty.', 'info', 2200);
+    this.menu.renderSaves();
+    this.menu.refreshPlayLabel();
+  }
+
+  async syncSlot(slot) {
+    if (!this.backend.signedIn) {
+      this.toasts.show('CLOUD SYNC', 'Sign in first — ACCOUNT → SIGN IN. Guest careers stay in this browser.', 'warn', 4500);
+      return;
+    }
+    const data = SaveSystem.load(slot);
+    const meta = SaveSystem.meta(slot);
+    if (!data) return;
+    try {
+      await this.backend.pushSave(slot, meta?.name || `Career ${slot + 1}`, data, {
+        playTime: data.playTime, credits: data.credits, level: meta?.level || 1
+      });
+      this.toasts.show('UPLOADED', `"${meta?.name || 'Career'}" is safe in the cloud.`, 'success');
+    } catch (e) {
+      this.toasts.show('SYNC FAILED', e.message, 'warn', 4000);
+    }
+  }
+
+  async syncAllSaves() {
+    for (const s of SaveSystem.listSlots()) await this.syncSlot(s.slot);
+  }
+
+  exportSlot(slot) {
+    const json = SaveSystem.exportSlot(slot);
+    if (!json) return;
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'solar-odyssey-career-' + (slot + 1) + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    this.toasts.show('EXPORTED', 'Career file downloaded.', 'success');
+  }
+
+  importSaveFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.addEventListener('change', () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => {
+        try {
+          const slot = SaveSystem.importSlot(String(r.result));
+          this.toasts.show('IMPORTED', 'Career restored into slot ' + (slot + 1) + '.', 'success');
+          this.menu.renderSaves();
+          this.menu.refreshPlayLabel();
+        } catch (e) {
+          this.toasts.show('IMPORT FAILED', e.message, 'warn', 4000);
+        }
+      };
+      r.readAsText(f);
+    });
+    input.click();
+  }
+
+  // ================================================================ SERVERS
+  /** Guess the player's region from their timezone — no IP lookup needed. */
+  detectRegion() {
+    let tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { /* older browsers */ }
+    const off = -new Date().getTimezoneOffset() / 60;
+    if (/Kolkata|Calcutta|Colombo|Karachi|Dhaka/.test(tz)) return 'ap-south';
+    if (/Singapore|Bangkok|Jakarta|Kuala/.test(tz)) return 'ap-south-east';
+    if (/Tokyo|Seoul|Shanghai|Hong_Kong|Taipei/.test(tz)) return 'ap-north-east';
+    if (/Sydney|Melbourne|Auckland|Brisbane/.test(tz)) return 'ap-southeast-2';
+    if (/London|Dublin|Lisbon/.test(tz)) return 'eu-west';
+    if (/Berlin|Paris|Madrid|Rome|Warsaw|Amsterdam|Stockholm/.test(tz)) return 'eu-central';
+    if (/New_York|Toronto|Chicago|Bogota|Lima/.test(tz)) return 'us-east';
+    if (/Los_Angeles|Denver|Vancouver|Phoenix/.test(tz)) return 'us-west';
+    if (/Sao_Paulo|Buenos_Aires|Santiago/.test(tz)) return 'sa-east';
+    if (off >= 4 && off <= 6.5) return 'ap-south';
+    if (off >= 7 && off <= 9) return 'ap-north-east';
+    if (off >= -1 && off <= 3) return 'eu-central';
+    if (off <= -4 && off >= -6) return 'us-east';
+    if (off <= -7) return 'us-west';
+    return 'eu-west';
+  }
+
+  async listServers(region) {
+    const want = !region || region === 'auto' ? this.detectRegion() : region;
+    if (!this.backend.configured) {
+      // Offline: still show the regional gateways so the browser is not a dead
+      // screen, flagged as unreachable.
+      return this._offlineServers(want);
+    }
+    try {
+      const rows = await this.backend.listServers(region === 'all' ? 'all' : want);
+      const list = rows.length ? rows : await this.backend.listServers('all');
+      return list.map(s => ({ ...s, ping: this._estimatePing(s.region, want) }));
+    } catch (e) {
+      return this._offlineServers(want);
+    }
+  }
+
+  _offlineServers(want) {
+    const REGIONS = [
+      ['ap-south', 'Sol Gateway — Mumbai'], ['ap-south-east', 'Sol Gateway — Singapore'],
+      ['ap-north-east', 'Sol Gateway — Tokyo'], ['ap-southeast-2', 'Sol Gateway — Sydney'],
+      ['eu-central', 'Sol Gateway — Frankfurt'], ['eu-west', 'Sol Gateway — London'],
+      ['us-east', 'Sol Gateway — Virginia'], ['us-west', 'Sol Gateway — Oregon'],
+      ['sa-east', 'Sol Gateway — Sao Paulo']
+    ];
+    return REGIONS.map(([region, name]) => ({
+      name, region, mode: 'coop', players: 0, capacity: 32, official: true,
+      offline: true, ping: this._estimatePing(region, want)
+    })).sort((a, b) => a.ping - b.ping);
+  }
+
+  /** Rough distance-based latency estimate between two regions. */
+  _estimatePing(region, home) {
+    if (!region) return null;
+    if (region === home) return 18 + Math.round(Math.random() * 20);
+    const CONT = {
+      'ap-south': 'asia', 'ap-south-east': 'asia', 'ap-north-east': 'asia', 'ap-southeast-2': 'oceania',
+      'eu-west': 'europe', 'eu-central': 'europe', 'us-east': 'americas', 'us-west': 'americas', 'sa-east': 'americas'
+    };
+    return CONT[region] === CONT[home] ? 60 + Math.round(Math.random() * 50) : 170 + Math.round(Math.random() * 120);
+  }
+
+  async joinServer(server) {
+    if (server.offline || !this.backend.configured) {
+      this.toasts.show('SERVER UNREACHABLE',
+        'No game server is connected. ACCOUNT → CONNECT SERVER to go online — single-player works without it.', 'warn', 5200);
+      return;
+    }
+    this.currentServer = server;
+    try { await this.backend.setPresence(server.id, 'online', 'Lobby'); } catch { /* best effort */ }
+    this.toasts.show('CONNECTED', `Joined ${server.name} (${server.region.toUpperCase()}).`, 'success', 3000);
+    this.menu.renderServers();
+  }
+
+  async hostServer() {
+    if (!this.backend.signedIn) {
+      this.toasts.show('HOST', 'Sign in to host a server for your friends.', 'warn', 4000);
+      return;
+    }
+    try {
+      await this.backend.createServer({
+        name: `${this.backend.handle}'s expedition`,
+        region: this.detectRegion(),
+        mode: 'coop', capacity: 8
+      });
+      this.toasts.show('SERVER HOSTED', 'Your friends can now find you in the server list.', 'success');
+      this.menu.renderServers();
+    } catch (e) {
+      this.toasts.show('HOST FAILED', e.message, 'warn', 4000);
+    }
+  }
+
+  // ================================================================ FRIENDS
+  async listFriends() {
+    if (!this.backend.signedIn) return null;
+    try { return await this.backend.listFriends(); }
+    catch (e) { throw e; }
+  }
+  async findFriends(query) {
+    if (!query || query.trim().length < 2) {
+      this.toasts.show('SEARCH', 'Type at least two characters.', 'warn', 2200);
+      return;
+    }
+    if (!this.backend.configured) {
+      this.toasts.show('SEARCH', 'Connect a server to find other commanders.', 'warn', 3600);
+      return;
+    }
+    try {
+      const people = await this.backend.findPlayers(query.trim());
+      this.menu.showSearchResults(people.filter(p => p.id !== this.backend.userId));
+    } catch (e) { this.toasts.show('SEARCH FAILED', e.message, 'warn'); }
+  }
+  async addFriend(person) {
+    try {
+      await this.backend.addFriend(person.id);
+      this.toasts.show('REQUEST SENT', `Waiting for ${person.handle} to accept.`, 'success');
+      this.menu.renderFriends();
+    } catch (e) { this.toasts.show('FAILED', e.message, 'warn'); }
+  }
+  async acceptFriend(f) {
+    try { await this.backend.acceptFriend(f.row.id); this.toasts.show('FRIEND ADDED', f.handle + ' is now on your crew list.', 'success'); this.menu.renderFriends(); }
+    catch (e) { this.toasts.show('FAILED', e.message, 'warn'); }
+  }
+  async removeFriend(f) {
+    // The RPC works on the PAIR of players, so it needs the other player's
+    // user id (f.id), not the friends-row id.
+    try { await this.backend.removeFriend(f.id); this.menu.renderFriends(); }
+    catch (e) { this.toasts.show('FAILED', e.message, 'warn'); }
+  }
+  inviteFriend(f) {
+    if (!this.currentServer) {
+      this.toasts.show('INVITE', 'Join a server first, then invite your friends to it.', 'warn', 3600);
+      return;
+    }
+    this.toasts.show('INVITE SENT', `${f.handle} was invited to ${this.currentServer.name}.`, 'success');
+  }
+
+  // ================================================================ ROCKETS
+  openRocketBuilder() {
+    if (this.mode !== 'menu' && !this.paused) this.togglePause();
+    this.rocketBuilder.show();
+    this.modalOpen = 'vab';
+  }
+
+  /**
+   * Fly a player-built rocket off the pad at Earth. This is a full game mode:
+   * the space scene stays loaded, the camera follows the ascent, and reaching
+   * orbit drops the player back into normal flight in Earth orbit.
+   */
+  launchRocket(design, analysis) {
+    this.closeModal();
+    this.paused = false;
+    const earth = this.solar.getBody('earth');
+    if (!earth) return;
+    this.gs.spend(analysis.cost);
+    this.launch = new LaunchSequence(design, earth, this.scene);
+    this.mode = 'launch';
+    this.hud.hide();
+    this.mobile.hide();
+    if (this.shipVisual) this.shipVisual.group.visible = false;
+    if (this.trail) this.trail.line.visible = false;
+    this.menu.hideMain();
+    this.menu.hidePause();
+    this._buildLaunchHUD();
+    this.toasts.show('LAUNCH SEQUENCE', `${design.name} is on the pad. T-minus 5.`, 'info', 4000);
+  }
+
+  _buildLaunchHUD() {
+    if (!this.launchHUD) {
+      this.launchHUD = el('div', 'launch-hud');
+      this.launchHUD.innerHTML = `
+        <div class="lh-top"><div class="lh-count"></div><div class="lh-phase"></div></div>
+        <div class="lh-stats">
+          <div><span>ALT</span><b class="lh-alt">0 km</b></div>
+          <div><span>SPEED</span><b class="lh-speed">0 m/s</b></div>
+          <div><span>STAGE</span><b class="lh-stage">1/1</b></div>
+          <div><span>Δv</span><b class="lh-dv">0</b></div>
+        </div>
+        <div class="lh-fuel"><div class="lh-fuel-fill"></div></div>
+        <div class="lh-log"></div>
+        <button class="btn btn-danger lh-abort">ABORT</button>`;
+      this.root.appendChild(this.launchHUD);
+      this.launchHUD.querySelector('.lh-abort').addEventListener('click', () => this._endLaunch(false, 'Launch aborted by flight control.'));
+    }
+    this.launchHUD.classList.remove('hidden');
+  }
+
+  _updateLaunch(dt) {
+    if (!this.launch) return;
+    const phase = this.launch.update(dt);
+    this.launch.cameraFor(this.camera);
+    const t = this.launch.telemetry();
+
+    const h = this.launchHUD;
+    if (h) {
+      h.querySelector('.lh-count').textContent = phase === 'countdown' ? 'T−' + t.countdown : 'T+' + Math.round(this.launch.t);
+      h.querySelector('.lh-phase').textContent = ({
+        countdown: 'HOLDING ON THE PAD', liftoff: 'ASCENT', gravityturn: 'GRAVITY TURN',
+        coast: 'CIRCULARISATION BURN', orbit: 'ORBIT ACHIEVED', failed: 'FLIGHT FAILURE'
+      })[phase] || phase.toUpperCase();
+      h.querySelector('.lh-alt').textContent = t.altitudeKm.toLocaleString() + ' km';
+      h.querySelector('.lh-speed').textContent = t.speed.toLocaleString() + ' m/s';
+      h.querySelector('.lh-stage').textContent = t.stage + '/' + t.stages;
+      h.querySelector('.lh-dv').textContent = t.deltaV.toLocaleString();
+      h.querySelector('.lh-fuel-fill').style.width = (t.fuelPct * 100).toFixed(0) + '%';
+      const last = t.events[t.events.length - 1];
+      h.querySelector('.lh-log').textContent = last ? last.msg : '';
+    }
+
+    // engine roar + flame while burning
+    const burning = phase === 'liftoff' || phase === 'gravityturn' || phase === 'coast';
+    this.audio.setEngine(burning ? 1 : 0, burning);
+    this.launch.mesh.setFlame?.(this.launch.stageIndex, burning ? 1 : 0);
+    if (burning && this.effects) {
+      this.effects.thrust?.(this.launch.group.position, new THREE.Vector3(0, -1, 0), true);
+    }
+
+    if (phase === 'orbit') this._endLaunch(true);
+    else if (phase === 'failed') this._endLaunch(false, this.launch.failReason);
+  }
+
+  _endLaunch(success, reason) {
+    if (!this.launch || this._endingLaunch) return;
+    this._endingLaunch = true;
+    const design = this.launch.design;
+    const analysis = this.launch.analysis;
+    this.audio.setEngine(0, false);
+    this._fade(true, () => {
+      this.launch?.dispose();
+      this.launch = null;
+      this.launchHUD?.classList.add('hidden');
+      this.mode = 'space';
+      const earth = this.solar.getBody('earth');
+      if (success) {
+        // Park the ship in Earth orbit and bank the rewards.
+        const r = earth.radius * 3.2;
+        this.shipState.position.copy(earth.group.position).add(new THREE.Vector3(r, 0, 0));
+        this.shipState.velocity.set(0, 0, 0);
+        this.trail.clear(this.shipState.position);
+        this.enterOrbit?.(earth);
+        const payout = Math.round(analysis.cost * 0.6 + analysis.science * 40 + analysis.crew * 250);
+        this.gs.addCredits(payout);
+        this.gs.addXP(150 + analysis.science * 5);
+        this.gs.award('rocketeer');
+        this.gs.state.rockets ||= { designs: [], active: null, built: [] };
+        this.gs.state.rockets.built.push({ name: design.name, at: Date.now(), reach: analysis.reach });
+        this.toasts.show('ORBIT ACHIEVED',
+          `${design.name} is in orbit. Mission payout +${payout.toLocaleString()} CR.`, 'success', 6000);
+        this.audio.levelUp();
+        // First orbit unlocks the rest of the game: now go land somewhere.
+        if (this.gs.state.careerStage === 'first-launch') {
+          this.gs.state.careerStage = 'explore';
+          setTimeout(() => this.toasts.show('NEXT OBJECTIVE',
+            'You are in orbit. Target a world (T), fly to it, SCAN it (R), enter orbit (E) and press L to LAND.',
+            'info', 9000), 6200);
+        }
+      } else {
+        this._spawnShip(false);
+        this.toasts.show('FLIGHT FAILURE', reason || 'The vehicle was lost.', 'warn', 6500);
+      }
+      this.hud.show();
+      this._enterPlay();
+      this._endingLaunch = false;
+      setTimeout(() => this._fade(false), 120);
+    });
   }
 
   // ================================================================ RESIZE

@@ -21,6 +21,8 @@
 export const MODAL_PRIORITY = [
   'pause',
   'confirm',
+  'account',
+  'vab',
   'missions',
   'settings',
   'ship',

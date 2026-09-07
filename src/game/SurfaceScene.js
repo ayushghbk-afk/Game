@@ -23,6 +23,7 @@ import { ValueNoise, fbm, mulberry32, clamp, lerp } from '../utils/Noise.js';
 import { getGlowTexture } from '../planets/ProceduralTextures.js';
 import { buildShipMesh } from '../spacecraft/Ship.js';
 import { themeFor } from '../surface/SurfaceThemes.js';
+import { ObjectStreamer } from '../world/ObjectStreamer.js';
 
 const SIZE = 900;
 const SEG = 88;
@@ -47,10 +48,11 @@ function segDist(x, z, f) {
 const sstep = (a, b, t) => { const x = clamp((t - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
 
 export class SurfaceScene {
-  constructor(bodyCfg, quality) {
+  constructor(bodyCfg, quality, opts = {}) {
     this.cfg = bodyCfg;
     this.id = bodyCfg.id;
     this.quality = quality;
+    this.streamQuality = opts.streaming || (quality === 'low' ? 'low' : 'medium');
     this.theme = themeFor(bodyCfg);
     this.scene = new THREE.Scene();
     this.gravAccel = 3.4 * Math.sqrt(bodyCfg.gravity || 0.3);
@@ -97,8 +99,8 @@ export class SurfaceScene {
     this._buildTerrain();
     this._buildSky();
     this._buildFeatureGlows();
+    this._buildBase();      // must precede _buildProps: streaming keeps the pad clear
     this._buildProps();
-    this._buildBase();
     this._buildLandmarkLabels();
     this._buildRover();
     this._buildBrokenRovers();
@@ -468,28 +470,70 @@ export class SurfaceScene {
   }
 
   // ------------------------------------------------ ROCKS / PROPS
+  /**
+   * Scatter props (boulders, debris, ice shards…) through the STREAMER instead
+   * of instantiating the whole 900×900 map at once. Cells near the player are
+   * generated on demand and everything the player walks away from is disposed,
+   * so memory stays flat no matter how far you drive.
+   */
   _buildProps() {
     const th = this.theme;
     const p = th.props;
     if (!p || !p.count) return;
-    const rand = mulberry32(this.seedBase + 61);
-    const count = Math.round(p.count * (this.quality === 'low' ? 0.5 : 1));
-    const geo = new THREE.DodecahedronGeometry(1, 0);
-    const mat = new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.95, flatShading: true });
-    const inst = new THREE.InstancedMesh(geo, mat, count);
-    const d = new THREE.Object3D();
+
+    // Density per square unit, derived from the theme's old total count so
+    // every world keeps the look it was tuned for.
+    const density = (p.count * (this.quality === 'low' ? 0.5 : 1)) / (SIZE * SIZE * 0.81);
     const lakes = th.features.filter(f => f.t === 'lake');
-    for (let i = 0; i < count; i++) {
-      let x = (rand() - 0.5) * SIZE * 0.9, z = (rand() - 0.5) * SIZE * 0.9;
-      for (const lk of lakes) if (Math.hypot(x - lk.x, z - lk.z) < lk.r + 8) { x = (rand() - 0.5) * SIZE * 0.9; z = (rand() - 0.5) * SIZE * 0.9; break; }
-      const s = 0.6 + rand() * 2.6;
-      d.position.set(x, this.heightAt(x, z) + s * 0.2, z);
-      d.rotation.set(rand() * 3, rand() * 3, rand() * 3);
-      d.scale.setScalar(s);
-      d.updateMatrix();
-      inst.setMatrixAt(i, d.matrix);
-    }
-    this.scene.add(inst);
+    const propGeo = new THREE.DodecahedronGeometry(1, 0);
+    this._propGeo = propGeo;
+
+    this.streamer = new ObjectStreamer(this.scene, (cx, cz, b, seed) => {
+      // Skip cells outside the playable map.
+      if (Math.abs(b.cx) > SIZE * 0.5 || Math.abs(b.cz) > SIZE * 0.5) return null;
+      const rand = mulberry32(seed);
+      const count = Math.max(0, Math.round(density * b.size * b.size * (0.6 + rand() * 0.8)));
+      if (!count) return null;
+
+      const mat = new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.95, flatShading: true });
+      const inst = new THREE.InstancedMesh(propGeo, mat, count);
+      const d = new THREE.Object3D();
+      let placed = 0;
+      for (let i = 0; i < count; i++) {
+        const x = b.x0 + rand() * b.size;
+        const z = b.z0 + rand() * b.size;
+        let inLake = false;
+        for (const lk of lakes) if (Math.hypot(x - lk.x, z - lk.z) < lk.r + 8) { inLake = true; break; }
+        if (inLake) continue;
+        // Keep the landing pad and outpost clear.
+        if (Math.hypot(x - this.basePos.x, z - this.basePos.z) < BASE_RANGE * 0.7) continue;
+        const sc = 0.6 + rand() * 2.6;
+        d.position.set(x, this.heightAt(x, z) + sc * 0.2, z);
+        d.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+        d.scale.setScalar(sc);
+        d.updateMatrix();
+        inst.setMatrixAt(placed++, d.matrix);
+      }
+      if (!placed) { inst.dispose(); mat.dispose(); return null; }
+      inst.count = placed;                 // trim to what actually got placed
+      inst.instanceMatrix.needsUpdate = true;
+      inst.frustumCulled = true;
+      // The shared geometry must survive cell disposal.
+      inst.userData.sharedGeometry = true;
+      return inst;
+    }, { quality: this.streamQuality, seed: this.seedBase + 61 });
+
+    // Prime the area around the landing site so the first frame isn't bare.
+    for (let i = 0; i < 12; i++) this.streamer.update(this.basePos.x, this.basePos.z);
+  }
+
+  /** Feed the streamer the player's current ground position. */
+  _updateStreaming() {
+    if (!this.streamer) return;
+    const p = this.vehicleMode === 'foot' ? this.footState.position
+      : this.vehicleMode === 'rover' ? this.roverState.position
+      : this.shipState.position;
+    this.streamer.update(p.x, p.z);
   }
 
   // ------------------------------------------------ OUTPOST / BASE
@@ -879,28 +923,82 @@ export class SurfaceScene {
     visor.emissiveIntensity = 0.7;
     const accent = this._material(0xff6a3a, 0.5, 0.3);
 
+    // NOTE ON ORIENTATION: the astronaut walks toward -Z (see `facing`,
+    // computed as atan2(-vx, -vz)), so the FRONT of the suit is -Z and the
+    // back is +Z. The original build had the visor and chest pack on +Z and
+    // the backpack on -Z, i.e. the helmet's face was on the back of the head:
+    // walking toward the camera you saw a blank white sphere, and the visor
+    // stared backwards. Every part below is placed front = -Z.
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.55, 4, 10), suit);
     torso.position.y = 1.18;
     g.add(torso);
     const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.14), pack);
-    chest.position.set(0, 1.3, 0.4);
+    chest.position.set(0, 1.3, -0.4);           // control panel on the CHEST
     g.add(chest);
     const chestLight = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.06), accent);
-    chestLight.position.set(0.14, 1.32, 0.48);
+    chestLight.position.set(0.14, 1.32, -0.48);
     g.add(chestLight);
     const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.78, 0.3), pack);
-    backpack.position.set(0, 1.25, -0.42);
+    backpack.position.set(0, 1.25, 0.42);        // life support on the BACK
     g.add(backpack);
     const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.5, 8), suitDark);
-    tank.position.set(0, 1.35, -0.62);
+    tank.position.set(0, 1.35, 0.62);
     g.add(tank);
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.31, 14, 12), suit);
+
+    // ---- head ----
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.31, 18, 14), suit);
     helmet.position.y = 1.92;
     g.add(helmet);
-    const visorMesh = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10), visor);
-    visorMesh.scale.set(1, 0.82, 0.6);
-    visorMesh.position.set(0, 1.9, 0.16);
+
+    // The visor is a spherical CAP carved out of the helmet front rather than
+    // a squashed sphere jammed through it — that intersection was what made
+    // the face read as a smeared white blob at any distance.
+    const visorGeo = new THREE.SphereGeometry(
+      0.315, 20, 14,
+      Math.PI * 0.5, Math.PI,          // horizontal sweep: the front half
+      Math.PI * 0.22, Math.PI * 0.52   // vertical band: brow to chin
+    );
+    const visorMesh = new THREE.Mesh(visorGeo, visor);
+    visorMesh.position.y = 1.92;
+    visorMesh.rotation.y = Math.PI;    // sweep faces -Z (forward)
     g.add(visorMesh);
+
+    // gold reflective sheen across the visor so the face catches the light
+    const sheen = new THREE.Mesh(
+      new THREE.SphereGeometry(0.322, 20, 10, Math.PI * 0.62, Math.PI * 0.76, Math.PI * 0.3, Math.PI * 0.16),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd58a, roughness: 0.12, metalness: 0.9,
+        transparent: true, opacity: 0.35
+      })
+    );
+    sheen.position.y = 1.92;
+    sheen.rotation.y = Math.PI;
+    g.add(sheen);
+
+    // helmet trim ring + neck seal so the head joins the body cleanly
+    const trim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.035, 8, 22), suitDark);
+    trim.position.y = 1.92;
+    trim.rotation.x = Math.PI / 2;
+    g.add(trim);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.22, 0.16, 12), suitDark);
+    neck.position.y = 1.66;
+    g.add(neck);
+
+    // helmet lamps — two small emissive pods, unmistakably the front
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xfff3d0, emissive: new THREE.Color(0xffe6a8), emissiveIntensity: 1.4, roughness: 0.3
+    });
+    for (const sx of [-0.22, 0.22]) {
+      const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.09, 8), lampMat);
+      lamp.position.set(sx, 2.02, -0.2);
+      lamp.rotation.x = Math.PI / 2;
+      g.add(lamp);
+    }
+    // antenna on the back of the helmet
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), suitDark);
+    ant.position.set(0.16, 2.18, 0.18);
+    ant.rotation.z = -0.3;
+    g.add(ant);
 
     const mkLimb = (w0, l0, w1, l1) => {
       const upper = new THREE.Mesh(new THREE.BoxGeometry(w0, l0, w0), suit);
@@ -1003,6 +1101,8 @@ export class SurfaceScene {
     if (this.vehicleMode === 'rover') this._updateRover(dt, input, camera);
     else if (this.vehicleMode === 'foot') this._updateFoot(dt, input, camera);
     else this._updateShuttle(dt, input, camera, hooks);
+    // Generate/erase world objects around wherever the player ended up.
+    this._updateStreaming();
   }
 
   _updateShuttle(dt, input, camera, hooks) {
@@ -1208,6 +1308,8 @@ export class SurfaceScene {
   }
 
   dispose() {
+    this.streamer?.clear();
+    this._propGeo?.dispose?.();
     this.scene.traverse(o => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {
