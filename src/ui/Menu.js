@@ -188,6 +188,7 @@ export class Menu {
     mkRow('FPS cap', mkSelect([['30', '30'], ['60', '60']], String(s.fpsCap), v => this.actions.settingsChanged({ fpsCap: parseInt(v) })));
     mkRow('Show FPS', mkToggle(s.showFps, v => this.actions.settingsChanged({ showFps: v })));
     mkRow('Invert Y', mkToggle(s.invertY, v => this.actions.settingsChanged({ invertY: v })));
+    mkRow('Aim assist', mkToggle(s.aimAssist !== false, v => this.actions.settingsChanged({ aimAssist: v })));
     mkRow('Music', mkSlider(s.music, v => this.actions.settingsChanged({ music: v })));
     mkRow('Sound FX', mkSlider(s.sfx, v => this.actions.settingsChanged({ sfx: v })));
 
@@ -208,7 +209,7 @@ export class Menu {
         <tr><td>W / S</td><td>Thrust forward / reverse</td></tr>
         <tr><td>A / D</td><td>Strafe left / right</td></tr>
         <tr><td>SPACE / CTRL</td><td>Ascend / descend</td></tr>
-        <tr><td>MOUSE</td><td>Look (click canvas to capture)</td></tr>
+        <tr><td>MOUSE</td><td>Look — click the canvas to capture. If the browser refuses pointer lock, hold the left mouse button and move to look.</td></tr>
         <tr><td>Q / X</td><td>Roll left / right</td></tr>
         <tr><td>SHIFT</td><td>Boost (uses more fuel & energy)</td></tr>
         <tr><td>B</td><td>Brake</td></tr>
@@ -221,8 +222,9 @@ export class Menu {
         <tr><td>L</td><td>Land (when orbiting Earth / Moon / Mars)</td></tr>
         <tr><td>V</td><td>Toggle chase / free camera</td></tr>
         <tr><td>ESC</td><td>Pause</td></tr>
-        <tr><td>TOUCH</td><td>On-screen joysticks & buttons — enable in Settings → Mobile controls</td></tr>
+        <tr><td>TOUCH</td><td>FPS layout (PUBG / Free Fire): left = move stick, right side = drag to look, big E = interact / hold to mine. Settings → Mobile controls.</td></tr>
       </table>
+      <p class="dim">Aim assist (Settings) gently steers the nose toward the current target, like auto-aim in FFM / PUBG — toggle it off if you want full manual control.</p>
       <p class="dim">Goal: explore, scan, mine, trade and upgrade — complete the mission chain all the way to Neptune.</p>`;
     m.root.classList.remove('hidden');
   }

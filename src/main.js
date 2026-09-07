@@ -44,6 +44,9 @@ async function start() {
     const game = new Game(canvas, root);
     await game.boot();
     window.__SOLAR_BOOTED = true;
+    // Debug / automated-test handle: full game graph (ship, controller,
+    // mobile controls, state) for browser test harnesses.
+    window.__SOLAR_GAME = game;
     hideBootError();
   } catch (e) {
     console.error(e);

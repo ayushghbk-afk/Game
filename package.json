@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/smoke.mjs && node test/ui-smoke.mjs && node test/static-host.mjs && node test/css-input-layers.mjs && node test/modal-state.mjs && node test/browser-clicks.mjs"
+    "test": "node test/smoke.mjs && node test/ui-smoke.mjs && node test/static-host.mjs && node test/css-input-layers.mjs && node test/modal-state.mjs && node test/aim-assist.mjs && node test/browser-clicks.mjs && node test/browser-controls.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

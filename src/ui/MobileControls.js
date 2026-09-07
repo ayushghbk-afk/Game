@@ -1,5 +1,12 @@
-// MobileControls — dedicated touch layout: dual virtual joysticks +
-// large action buttons. Feeds the shared touch state in ShipController.
+// MobileControls — FPS-style touch layout (Free Fire / PUBG model):
+//   · LEFT thumb  — virtual MOVE joystick (throttle + strafe)
+//   · RIGHT side  — full-area DRAG TO LOOK zone (finger follows the view),
+//                   like the aim area in FFM/PUBG
+//   · big E button — INTERACT (tap: dock/orbit/collect, hold: mine) — the
+//                   "fire" button of this game
+//   · left cluster — BOOST / BRAKE / ▲ / ▼
+//   · top cluster  — SCAN / TGT / MAP / LOG / CODEX / LAND / PAUSE
+// Feeds the shared touch state consumed by ShipController.
 import { el } from '../utils/UI.js';
 
 class Joystick {
@@ -16,10 +23,10 @@ class Joystick {
     zone.addEventListener('pointercancel', (e) => this._end(e));
   }
   _start(e) {
-  this._id = e.pointerId;
-  this.active = true;
-  try { this.zone.setPointerCapture?.(e.pointerId); } catch { /* jsdom/old browsers */ }
-  this._update(e);
+    this._id = e.pointerId;
+    this.active = true;
+    try { this.zone.setPointerCapture?.(e.pointerId); } catch { /* jsdom/old browsers */ }
+    this._update(e);
   }
   _move(e) { if (this.active && e.pointerId === this._id) this._update(e); }
   _end(e) {
@@ -42,26 +49,76 @@ class Joystick {
   }
 }
 
+/** Full-area drag-to-look (PUBG/FFM): any touch that lands here drives the
+ *  camera; deltas are forwarded to touchState.lookDelta. Multi-touch safe —
+ *  only one finger at a time drives the view. */
+class LookZone {
+  constructor(zone, onDelta, onFirst) {
+    this.onDelta = onDelta;
+    this.zone = zone;
+    this.ring = zone.querySelector('.mc-look-ring');
+    this._id = null;
+    this._last = null;
+    zone.addEventListener('pointerdown', (e) => {
+      if (this._id !== null) return;
+      this._id = e.pointerId;
+      this._last = { x: e.clientX, y: e.clientY };
+      try { zone.setPointerCapture?.(e.pointerId); } catch { /* jsdom */ }
+      if (this.ring) { this.ring.style.opacity = 1; this._place(e); }
+      onFirst?.();
+    });
+    zone.addEventListener('pointermove', (e) => {
+      if (this._id !== e.pointerId || !this._last) return;
+      const dx = e.clientX - this._last.x;
+      const dy = e.clientY - this._last.y;
+      this._last = { x: e.clientX, y: e.clientY };
+      if (dx || dy) {
+        this.onDelta(dx, dy);
+        if (this.ring) this._place(e);
+      }
+    });
+    const end = (e) => {
+      if (this._id !== e.pointerId) return;
+      this._id = null;
+      this._last = null;
+      if (this.ring) this.ring.style.opacity = 0;
+    };
+    zone.addEventListener('pointerup', end);
+    zone.addEventListener('pointercancel', end);
+  }
+  _place(e) {
+    const r = this.zone.getBoundingClientRect();
+    this.ring.style.left = (e.clientX - r.left) + 'px';
+    this.ring.style.top = (e.clientY - r.top) + 'px';
+  }
+}
+
 export class MobileControls {
   constructor(root, touchState, actions) {
     this.state = touchState;
+    this.actions = actions;
     this.wrap = el('div', 'mobile-controls hidden');
     this.wrap.innerHTML = `
+      <!-- drag-to-look area: right ~55% of the screen, behind every button -->
+      <div class="mc-look-zone">
+        <div class="mc-look-ring"></div>
+        <div class="mc-look-hint">DRAG TO LOOK</div>
+      </div>
       <div class="mc-left joy-zone"><div class="joy-base"></div><div class="joy-nub"></div><div class="joy-label">MOVE</div></div>
-      <div class="mc-right joy-zone"><div class="joy-base"></div><div class="joy-nub"></div><div class="joy-label">LOOK</div></div>
       <div class="mc-actions">
         <button class="mc-btn mc-boost" data-hold="boost">BOOST</button>
         <button class="mc-btn" data-hold="brake">BRAKE</button>
         <button class="mc-btn" data-hold="vertUp">▲</button>
         <button class="mc-btn" data-hold="vertDown">▼</button>
       </div>
+      <button class="mc-btn mc-interact" data-holdTap="interact">E</button>
       <div class="mc-top-actions">
         <button class="mc-btn mc-small" data-tap="scan">SCAN</button>
-        <button class="mc-btn mc-small" data-tap="map">MAP</button>
-        <button class="mc-btn mc-small" data-holdTap="interact">E</button>
         <button class="mc-btn mc-small" data-tap="target">TGT</button>
+        <button class="mc-btn mc-small" data-tap="map">MAP</button>
         <button class="mc-btn mc-small" data-tap="missions">LOG</button>
         <button class="mc-btn mc-small" data-tap="codex">CODEX</button>
+        <button class="mc-btn mc-small" data-tap="land">LAND</button>
         <button class="mc-btn mc-small" data-tap="pause">PAUSE</button>
       </div>`;
     root.appendChild(this.wrap);
@@ -69,8 +126,13 @@ export class MobileControls {
     new Joystick(this.wrap.querySelector('.mc-left'), (x, y) => {
       touchState.move.x = x; touchState.move.y = y;
     });
-    new Joystick(this.wrap.querySelector('.mc-right'), (x, y) => {
-      touchState.look.x = x; touchState.look.y = y;
+    // right-side drag look → raw px deltas (converted in ShipController)
+    new LookZone(this.wrap.querySelector('.mc-look-zone'), (dx, dy) => {
+      touchState.lookDelta.x += dx;
+      touchState.lookDelta.y += dy;
+    }, () => {
+      const hint = this.wrap.querySelector('.mc-look-hint');
+      if (hint) hint.style.display = 'none';
     });
 
     for (const btn of this.wrap.querySelectorAll('[data-hold]')) {
@@ -85,7 +147,7 @@ export class MobileControls {
     for (const btn of this.wrap.querySelectorAll('[data-tap]')) {
       btn.addEventListener('pointerdown', (e) => { e.preventDefault(); actions[btn.dataset.tap]?.(); });
     }
-    // E button: hold-to-mine, tap-to-interact
+    // E button: hold-to-mine, tap-to-interact (the "fire" button)
     const eBtn = this.wrap.querySelector('[data-holdTap="interact"]');
     let downT = 0;
     eBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); downT = performance.now(); touchState.interactHeld = true; eBtn.classList.add('held'); });
@@ -108,6 +170,7 @@ export class MobileControls {
     this.state.active = false;
     this.state.move.x = 0; this.state.move.y = 0;
     this.state.look.x = 0; this.state.look.y = 0;
+    if (this.state.lookDelta) { this.state.lookDelta.x = 0; this.state.lookDelta.y = 0; }
     this.state.boost = false; this.state.brake = false;
     this.state.vertUp = false; this.state.vertDown = false;
     this.state.interactHeld = false;

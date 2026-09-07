@@ -18,6 +18,7 @@ import { buildShipMesh, ShipTrail } from '../spacecraft/Ship.js';
 import { ShipPhysics } from '../spacecraft/ShipPhysics.js';
 import { ShipController } from '../spacecraft/ShipController.js';
 import { shipStats } from '../spacecraft/ShipUpgrades.js';
+import { computeAimAssist } from '../utils/AimAssist.js';
 import { GameState, ACHIEVEMENTS } from './GameState.js';
 import { TimeSystem } from './TimeSystem.js';
 import { MissionManager } from '../missions/MissionManager.js';
@@ -171,6 +172,7 @@ export class Game {
       scan: () => this.tryScan(),
       map: () => this.toggleMap(),
       target: () => this.cycleTarget(),
+      land: () => this.tryLand(),
       missions: () => this.toggleModal('missions'),
       codex: () => this.toggleModal('codex'),
       pause: () => {
@@ -179,6 +181,15 @@ export class Game {
         else if (this.mode !== 'menu' && this.mode !== 'loading') this.togglePause();
       }
     });
+    // The drag-to-look fallback fires this on the player's first actual
+    // use (mouse environments where the browser refused/silently failed the
+    // pointer lock) — the moment a "my mouse doesn't work" situation
+    // becomes real.
+    this.controller.onDragLook = () => {
+      if (this.mode !== 'space' || this._dragLookToasted) return;
+      this._dragLookToasted = true;
+      this.toasts.show('MOUSE', 'Pointer lock is unavailable in this browser — keep holding the left mouse button and move to look around.', 'info', 6000);
+    };
     this.fpsEl = el('div', 'fps-counter hidden');
     this.root.appendChild(this.fpsEl);
 
@@ -432,7 +443,7 @@ export class Game {
     this.syncAnomalies();
     this._syncMobileControls();
     this.syncModalState(); // never carry stale modal state into flight
-    if (!this.mobileActive) this.canvas.requestPointerLock?.();
+    if (!this.mobileActive) this.controller.tryRequestPointerLock();
   }
 
   _wantsMobileControls() {
@@ -460,7 +471,7 @@ export class Game {
         document.exitPointerLock?.();
         this._expectedUnlock = true;
       } else {
-        this.canvas.requestPointerLock?.();
+        this.controller.tryRequestPointerLock();
       }
     }
   }
@@ -505,7 +516,7 @@ export class Game {
       // per-frame update in _loop — otherwise a key pressed in the same
       // instant as RESUME (e.g. M to open the map right away) is lost.
       this.controller.enabled = true;
-      if (!this.mobileActive && this.mode === 'space') this.canvas.requestPointerLock?.();
+      if (!this.mobileActive && this.mode === 'space') this.controller.tryRequestPointerLock();
     }
     this.audio.click();
   }
@@ -666,6 +677,27 @@ export class Game {
     // emergency ram-scoop: slow refuel when coasting
     const throttleOff = Math.abs(input.throttleF) < 0.05 && !input.boost;
     if (throttleOff) this.shipState.fuel = Math.min(stats.fuelCapacity, this.shipState.fuel + 0.9 * dt);
+
+    // aim assist (FFM/PUBG-style auto-aim): gently pull the nose toward the
+    // current target in free flight. Disabled while orbiting/warping/modal.
+    if (!this.warp && !this.orbiting && this.gs.state.settings.aimAssist !== false) {
+      const tp = this._targetWorldPos();
+      if (tp && this.target) {
+        const aid = computeAimAssist(
+          this.shipState.quaternion, this.shipState.position, tp, dt,
+          { enabled: true }
+        );
+        if (aid.engaging) {
+          input.yawDelta += aid.yawDelta;
+          input.pitchDelta += aid.pitchDelta;
+          this.aimAssistActive = true;
+        } else {
+          this.aimAssistActive = false;
+        }
+      } else {
+        this.aimAssistActive = false;
+      }
+    }
 
     if (this.warp) {
       this._updateWarp(dt, stats);
@@ -1133,7 +1165,7 @@ export class Game {
     this.menu.missionsModal.close();
     this.modalOpen = null;
     this.toasts.show('UNDOCKED', `Clear of ${this.dockingStation?.name || 'station'}.`, 'info', 1600);
-    if (!this.mobileActive) this.canvas.requestPointerLock?.();
+    if (!this.mobileActive) this.controller.tryRequestPointerLock();
   }
 
   // ---- damage / death ----

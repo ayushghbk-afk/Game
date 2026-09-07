@@ -267,7 +267,8 @@ export const DEFAULT_SETTINGS = {
   showFps: false,
   orbitLines: true,
   fpsCap: 60,
-  mobileControls: 'auto' // 'auto' | 'on' | 'off'
+  mobileControls: 'auto', // 'auto' | 'on' | 'off'
+  aimAssist: true // FFM/PUBG-style auto-aim: gently pulls the nose toward the target
 };
 
 export function isTouchDevice() {
