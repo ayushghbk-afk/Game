@@ -27,6 +27,7 @@ export const MODAL_PRIORITY = [
   'settings',
   'ship',
   'help',
+  'redeem',
   'codex',
   'base',
   'map',

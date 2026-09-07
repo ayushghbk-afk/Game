@@ -110,6 +110,7 @@ check('registry mirrors Game._modalRegistry (same kinds as the real code)', () =
     settings: menu.settingsModal.root,
     ship: menu.shipModal.root,
     help: menu.helpModal.root,
+    redeem: menu.redeemModal.root,
     codex: codex.modal.root,
     account: document.createElement('div'),
     vab: document.createElement('div'),
