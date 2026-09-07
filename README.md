@@ -180,7 +180,11 @@ server list and shared rocket designs.
 ### Setting up the server (Supabase)
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor** and run [`supabase/schema.sql`](supabase/schema.sql).
+2. Open **SQL Editor** and run [`supabase/schema.sql`](supabase/schema.sql) to
+   create the tables, then [`supabase/schema-v2.sql`](supabase/schema-v2.sql) to
+   harden them. V2 revokes direct browser writes on friends, presence, servers
+   and the rocket like/download counters, routing them through RPCs that check
+   who you are server-side. Both are idempotent — re-running them is safe.
    It creates `profiles`, `saves`, `settings`, `friends`, `servers`, `presence`
    and `rockets`, turns on row-level security for all of them, and seeds the
    nine official regional gateways.

@@ -1211,5 +1211,162 @@ await check('the flown rocket sits on the pad, never sunk through it', async () 
   assert(minY < 1, 'the rocket was modelled floating 25 m above the pad');
 });
 
+
+// =====================================================================
+console.log('\n== SERVER-SIDE WRITE PATHS (RPC contract) ==');
+//
+// schema-v2.sql revokes direct client writes on friends/presence/servers and
+// on the rocket counters. If the client ever goes back to a raw PATCH/POST on
+// those tables the database will simply reject it at runtime, so these tests
+// pin the request the client actually sends.
+
+/** Sign a Backend in and capture every outgoing request. */
+function tapBackend() {
+  localStorage.clear();
+  const be = new Backend();
+  be.session = { access_token: 'tok', refresh_token: 'r', user: { id: 'me-uuid' } };
+  be.profile = { id: 'me-uuid', handle: 'Tester' };
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({
+      url: String(url),
+      method: opts.method || 'GET',
+      body: opts.body ? JSON.parse(opts.body) : null
+    });
+    return {
+      ok: true, status: 200,
+      text: async () => JSON.stringify({ ok: true })
+    };
+  };
+  return { be, calls };
+}
+
+const realFetch = globalThis.fetch;
+
+await check('adding a friend goes through send_friend_request', async () => {
+  const { be, calls } = tapBackend();
+  await be.addFriend('them-uuid');
+  assert(calls.length === 1, 'expected exactly one request');
+  assert(calls[0].url.endsWith('/rest/v1/rpc/send_friend_request'),
+    'not an RPC call: ' + calls[0].url);
+  assert(calls[0].method === 'POST', 'RPCs must be POSTed');
+  assert(calls[0].body.target_user === 'them-uuid', 'wrong argument name/value');
+  assert(!calls[0].url.includes('/rest/v1/friends'), 'still writing the table directly');
+});
+
+await check('befriending yourself is refused before it reaches the network', async () => {
+  const { be, calls } = tapBackend();
+  let threw = false;
+  try { await be.addFriend('me-uuid'); } catch { threw = true; }
+  assert(threw, 'self-friending was allowed');
+  assert(calls.length === 0, 'a doomed request was still sent');
+});
+
+await check('accepting and blocking use respond_friend_request', async () => {
+  const { be, calls } = tapBackend();
+  await be.acceptFriend('row-1');
+  await be.blockFriend('row-2');
+  assert(calls.every(c => c.url.endsWith('/rest/v1/rpc/respond_friend_request')),
+    'not routed through the RPC');
+  assert(calls[0].body.request_id === 'row-1' && calls[0].body.new_status === 'accepted',
+    'bad accept payload: ' + JSON.stringify(calls[0].body));
+  assert(calls[1].body.new_status === 'blocked', 'bad block payload');
+  assert(!calls.some(c => c.method === 'PATCH'), 'still PATCHing the friends table');
+});
+
+await check('removing a friend sends the other player id, not the row id', async () => {
+  const { be, calls } = tapBackend();
+  await be.removeFriend('them-uuid');
+  assert(calls[0].url.endsWith('/rest/v1/rpc/remove_friend'), 'not an RPC');
+  assert(calls[0].body.target_user === 'them-uuid', 'wrong argument');
+  assert(calls[0].method !== 'DELETE', 'still deleting the row directly');
+});
+
+await check('presence is written through update_presence', async () => {
+  const { be, calls } = tapBackend();
+  await be.setPresence('server-1', 'in-game', 'MARS SURFACE');
+  assert(calls[0].url.endsWith('/rest/v1/rpc/update_presence'), 'not an RPC');
+  const b = calls[0].body;
+  assert(b.target_server === 'server-1' && b.new_status === 'in-game'
+    && b.new_location === 'MARS SURFACE', 'bad payload: ' + JSON.stringify(b));
+  assert(!('user_id' in b), 'client is still asserting its own user_id');
+});
+
+await check('a guest never emits a presence request', async () => {
+  localStorage.clear();
+  const be = new Backend();
+  const calls = [];
+  globalThis.fetch = async (u) => { calls.push(u); throw new Error('no'); };
+  assert(await be.setPresence('s', 'online', 'EARTH') === null, 'guest presence not skipped');
+  assert(calls.length === 0, 'guest hit the network');
+});
+
+await check('the server heartbeat cannot smuggle official/owner fields', async () => {
+  const { be, calls } = tapBackend();
+  await be.serverHeartbeat('server-1', 7);
+  assert(calls[0].url.endsWith('/rest/v1/rpc/server_heartbeat'), 'not an RPC');
+  const b = calls[0].body;
+  assert(b.target_server === 'server-1' && b.reported_players === 7, 'bad payload');
+  assert(!('official' in b) && !('owner_id' in b), 'heartbeat tried to set privileged fields');
+  // A missing count must be null, not NaN/undefined, or the RPC rejects it.
+  calls.length = 0;
+  await be.serverHeartbeat('server-1');
+  assert(calls[0].body.reported_players === null, 'absent player count was not null');
+});
+
+await check('liking a rocket goes through toggle_rocket_like', async () => {
+  const { be, calls } = tapBackend();
+  await be.toggleRocketLike('rk-1');
+  assert(calls[0].url.endsWith('/rest/v1/rpc/toggle_rocket_like'), 'not an RPC');
+  assert(calls[0].body.target_rocket === 'rk-1', 'wrong argument');
+});
+
+await check('downloads are counted by RPC and never block the player', async () => {
+  const { be, calls } = tapBackend();
+  await be.recordRocketDownload('rk-1');
+  assert(calls[0].url.endsWith('/rest/v1/rpc/record_rocket_download'), 'not an RPC');
+  assert(!calls.some(c => c.method === 'PATCH'), 'still PATCHing rockets.downloads');
+
+  // If the counter fails the download must still succeed — it is telemetry.
+  globalThis.fetch = async () => ({
+    ok: false, status: 403, text: async () => JSON.stringify({ message: 'denied' })
+  });
+  let threw = false;
+  try { await be.recordRocketDownload('rk-1'); } catch { threw = true; }
+  assert(!threw, 'a failed download counter broke the download itself');
+});
+
+await check('a guest is told to sign in rather than firing a doomed write', async () => {
+  localStorage.clear();
+  const be = new Backend();
+  const calls = [];
+  globalThis.fetch = async (u) => { calls.push(u); throw new Error('should not run'); };
+  for (const fn of [
+    () => be.addFriend('x'),
+    () => be.toggleRocketLike('x')
+  ]) {
+    let msg = '';
+    try { await fn(); } catch (e) { msg = e.message; }
+    assert(/sign in/i.test(msg), 'unhelpful guest error: ' + msg);
+  }
+  assert(calls.length === 0, 'guest writes reached the network');
+});
+
+await check('my likes come back as a fast lookup set', async () => {
+  const { be } = tapBackend();
+  globalThis.fetch = async () => ({
+    ok: true, status: 200,
+    text: async () => JSON.stringify([{ rocket_id: 'a' }, { rocket_id: 'b' }])
+  });
+  const likes = await be.myRocketLikes();
+  assert(likes instanceof Set && likes.has('a') && likes.has('b') && !likes.has('c'),
+    'myRocketLikes did not return a usable Set');
+  // Guests have no likes and must not hit the network.
+  localStorage.clear();
+  assert((await new Backend().myRocketLikes()).size === 0, 'guest had likes');
+});
+
+globalThis.fetch = realFetch;
+
 console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -2467,7 +2467,9 @@ export class Game {
     catch (e) { this.toasts.show('FAILED', e.message, 'warn'); }
   }
   async removeFriend(f) {
-    try { await this.backend.removeFriend(f.row.id); this.menu.renderFriends(); }
+    // The RPC works on the PAIR of players, so it needs the other player's
+    // user id (f.id), not the friends-row id.
+    try { await this.backend.removeFriend(f.id); this.menu.renderFriends(); }
     catch (e) { this.toasts.show('FAILED', e.message, 'warn'); }
   }
   inviteFriend(f) {

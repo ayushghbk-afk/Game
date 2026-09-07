@@ -140,6 +140,19 @@ export class Backend {
     return this._fetch('/rest/v1/' + table + (query ? '?' + query : ''), opts);
   }
 
+  /**
+   * Call a Postgres function. Multiplayer state and counters are no longer
+   * writable straight from the browser (see supabase/schema-v2.sql) — the
+   * database only accepts them through these, which re-check who you are
+   * server-side. A client that fakes the request just gets an exception.
+   */
+  _rpc(fn, args = {}) {
+    return this._fetch('/rest/v1/rpc/' + fn, {
+      method: 'POST',
+      body: JSON.stringify(args)
+    });
+  }
+
   // ---------------------------------------------------------------- auth
   async signUp(email, password, handle) {
     const body = await this._fetch('/auth/v1/signup', {
@@ -281,14 +294,23 @@ export class Backend {
 
   async setPresence(serverId, status, location) {
     if (!this.signedIn) return null;
-    return this._rest('presence', 'on_conflict=user_id', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify({
-        user_id: this.userId, server_id: serverId || null,
-        status: status || 'online', location: location || null,
-        updated_at: new Date().toISOString()
-      })
+    return this._rpc('update_presence', {
+      target_server: serverId || null,
+      new_status: status || 'online',
+      new_location: location || null
+    });
+  }
+
+  /**
+   * Tell the server we are still hosting. Only the owner may call it, and it
+   * cannot change `official` or `owner_id` — the whole reason server updates
+   * are no longer a plain PATCH.
+   */
+  async serverHeartbeat(serverId, players) {
+    if (!this.signedIn) return null;
+    return this._rpc('server_heartbeat', {
+      target_server: serverId,
+      reported_players: Number.isFinite(players) ? players : null
     });
   }
 
@@ -330,21 +352,28 @@ export class Backend {
   async addFriend(friendId) {
     if (!this.signedIn) throw new Error('Sign in to add friends.');
     if (friendId === this.userId) throw new Error('You cannot befriend yourself, Commander.');
-    return this._rest('friends', '', {
-      method: 'POST',
-      headers: { Prefer: 'return=representation,resolution=merge-duplicates' },
-      body: JSON.stringify({ user_id: this.userId, friend_id: friendId, status: 'pending' })
-    });
+    return this._rpc('send_friend_request', { target_user: friendId });
   }
 
+  /** Answer a pending request. Only the recipient can — enforced in SQL. */
   async acceptFriend(rowId) {
-    return this._rest('friends', 'id=eq.' + rowId, {
-      method: 'PATCH', body: JSON.stringify({ status: 'accepted' })
+    return this._rpc('respond_friend_request', {
+      request_id: rowId, new_status: 'accepted'
     });
   }
 
-  async removeFriend(rowId) {
-    return this._rest('friends', 'id=eq.' + rowId, { method: 'DELETE' });
+  async blockFriend(rowId) {
+    return this._rpc('respond_friend_request', {
+      request_id: rowId, new_status: 'blocked'
+    });
+  }
+
+  /**
+   * Remove a relationship. Takes the OTHER PLAYER's user id (the RPC works on
+   * the pair), not the friends-row id the old REST delete used.
+   */
+  async removeFriend(otherUserId) {
+    return this._rpc('remove_friend', { target_user: otherUserId });
   }
 
   // ---------------------------------------------------------------- rockets
@@ -377,6 +406,33 @@ export class Backend {
 
   async deleteRocket(id) {
     return this._rest('rockets', 'id=eq.' + id, { method: 'DELETE' });
+  }
+
+  /** Like / unlike a shared design. Returns true if it is now liked. */
+  async toggleRocketLike(rocketId) {
+    if (!this.signedIn) throw new Error('Sign in to like designs.');
+    return this._rpc('toggle_rocket_like', { target_rocket: rocketId });
+  }
+
+  /** Which shared designs the signed-in player has already liked. */
+  async myRocketLikes() {
+    if (!this.signedIn) return new Set();
+    const rows = (await this._rest('rocket_likes',
+      'user_id=eq.' + this.userId + '&select=rocket_id')) || [];
+    return new Set(rows.map(r => r.rocket_id));
+  }
+
+  /**
+   * Count a download. The browser cannot bump the counter directly any more,
+   * so a failure here must never block the player from getting their rocket.
+   */
+  async recordRocketDownload(rocketId) {
+    if (!this.signedIn) return null;
+    try {
+      return await this._rpc('record_rocket_download', { target_rocket: rocketId });
+    } catch {
+      return null;
+    }
   }
 }
 
