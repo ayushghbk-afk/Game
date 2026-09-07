@@ -1,6 +1,8 @@
 // Solar Odyssey — entry point. Checks WebGL, shows friendly errors,
 // boots the Game, and keeps global failures from hard-crashing silently.
-import './style.css';
+// (Stylesheet is loaded via <link> in index.html: Vite bundles it into the
+// production build, and a plain <link> is what a static host needs —
+// `import './style.css'` would be rejected as a non-JS MIME type.)
 import { Game } from './game/Game.js';
 
 function hideBootError() {

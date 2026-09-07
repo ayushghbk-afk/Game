@@ -73,15 +73,24 @@ Tests (headless, no browser needed):
 ```bash
 node test/smoke.mjs       # world/physics/economy/missions/save — 44 checks
 node test/ui-smoke.mjs    # UI modules under jsdom — 25 checks
+node test/static-host.mjs # unbundled boot path (plain static host / CDN three)
 ```
 
 ## DEPLOY TO GITHUB PAGES
 
-Fully configured via GitHub Actions (`.github/workflows/deploy.yml`):
+**Recommended — Build and deployment via GitHub Actions**
+(`.github/workflows/deploy.yml` is ready):
 
-1. Push to `main` (or merge a PR into `main`).
-2. The workflow installs, builds with Vite, and deploys `dist/` to Pages.
-3. In the repo: **Settings → Pages → Source: GitHub Actions**.
+1. In the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. Push to `main` (or merge a PR into `main`).
+3. The workflow installs, builds with Vite, and deploys `dist/` to Pages.
+
+**Fallback — "Deploy from a branch" (`main` /) also works.** Pages then
+serves the repo root *unbundled*, and the game handles that: the stylesheet
+is loaded via a plain `<link>` and the bare `three` imports are resolved by
+the import map in `index.html` (jsDelivr CDN, version-pinned to
+`package.json`). If you bump `three`, update the import map too —
+`node test/static-host.mjs` enforces the pin.
 
 The Vite build uses a **relative base (`./`)**, so it works from
 `https://<user>.github.io/<repo>/` or any subpath without configuration.
