@@ -1,0 +1,518 @@
+{
+  "game": "Solar Odyssey",
+  "generated": "2026-09-07T14:28:03.515Z",
+  "format": "glTF-Binary (.glb)",
+  "count": 102,
+  "files": [
+    {
+      "file": "glb/ship.glb",
+      "sizeKB": 27.5,
+      "description": "The player’s spacecraft — fuselage, cockpit, wings, tail, engine block and engine light."
+    },
+    {
+      "file": "glb/rockets/odyssey-i.glb",
+      "sizeKB": 140,
+      "description": "“Odyssey I” — the stock starter rocket, assembled by the game’s own builder, stage groups included."
+    },
+    {
+      "file": "glb/rockets/parts/cmd-mk1_mk1-command-pod.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/cmd-mk2_mk2-crew-capsule.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/cmd-probe_probodyne-core.glb",
+      "sizeKB": 8.5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/cmd-shuttle_orbiter-flight-deck.glb",
+      "sizeKB": 5.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/cmd-mk3_mk3-deep-space-capsule.glb",
+      "sizeKB": 6.3,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/cmd-inline_mk2-inline-cockpit.glb",
+      "sizeKB": 6.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-s_fl-t200-tank.glb",
+      "sizeKB": 8.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-m_fl-t800-tank.glb",
+      "sizeKB": 8.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-l_jumbo-64-tank.glb",
+      "sizeKB": 8.5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-xl_kerbodyne-s3-14400.glb",
+      "sizeKB": 8.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-cryo_cryogenic-upper-tank.glb",
+      "sizeKB": 16.7,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-radial_str-2-radial-tank.glb",
+      "sizeKB": 13.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-balloon_centaur-balloon-tank.glb",
+      "sizeKB": 22.8,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/tank-onion_s3-sage-onion-tank.glb",
+      "sizeKB": 8.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-ant_lv-1-ant.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-swivel_lv-t45-swivel.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-skipper_re-i5-skipper.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-mainsail_re-m3-mainsail.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-raptor_rs-x-raptor.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-nerv_lv-n-nerv-atomic.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-ion_ix-6315-ion-drive.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-aerospike_xa-250-torii-aerospike.glb",
+      "sizeKB": 5.2,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-boar_kr-1-boar-heavy.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/eng-vernier_vr-1-vernier-pod.glb",
+      "sizeKB": 5.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/srb-small_rt-5-flea-srb.glb",
+      "sizeKB": 7.5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/srb-med_rt-10-hammer-srb.glb",
+      "sizeKB": 7.5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/srb-large_s1-srb-kd25k.glb",
+      "sizeKB": 7.5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/srb-mega_megalodon-segmented-srb.glb",
+      "sizeKB": 7.5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/srb-kick_rt-2-thumper-micro-srb.glb",
+      "sizeKB": 7.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/dec-stack_td-12-decoupler.glb",
+      "sizeKB": 8.1,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/adapter_rockomax-adapter.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/fairing_ae-ff1-fairing.glb",
+      "sizeKB": 4.9,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/girder_modular-girder.glb",
+      "sizeKB": 9.7,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/nose-cone_av-1-nose-cone.glb",
+      "sizeKB": 5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/interstage_interstage-coupler.glb",
+      "sizeKB": 9.7,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/fins_av-f1-grid-fins.glb",
+      "sizeKB": 5.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-sat_comms-satellite.glb",
+      "sizeKB": 5.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-lander_surface-lander.glb",
+      "sizeKB": 5.8,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-hab_habitat-module.glb",
+      "sizeKB": 7.5,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-rover_rover-bay.glb",
+      "sizeKB": 3.7,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-science_science-bay.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-depot_orbital-fuel-depot.glb",
+      "sizeKB": 8.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-cubesat_cubesat-dispenser.glb",
+      "sizeKB": 3.7,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/pay-telescope_deep-scope-telescope.glb",
+      "sizeKB": 11.8,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-chute_mk16-parachute.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-chute-drogue_mk25-drogue-chute.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-legs_lt-1-landing-legs.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-legs-heavy_lt-5-heavy-landing-legs.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-rcs_rcs-thruster-block.glb",
+      "sizeKB": 6.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-solar_gigantor-solar-array.glb",
+      "sizeKB": 5.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-solar-small_oxs-4-solar-wing.glb",
+      "sizeKB": 5.4,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-battery_z-4k-battery-bank.glb",
+      "sizeKB": 7.2,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-heatshield_ablative-heat-shield.glb",
+      "sizeKB": 6.7,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-dock_clamp-o-tron-docking-port.glb",
+      "sizeKB": 16.9,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-antenna_hg-55-high-gain-antenna.glb",
+      "sizeKB": 20.6,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/rockets/parts/util-radiator_r-30-radiator-panel.glb",
+      "sizeKB": 3.7,
+      "description": "A Vehicle-Assembly-Building part — the exact geometry, material and procedural texture used in-game."
+    },
+    {
+      "file": "glb/sun.glb",
+      "sizeKB": 153.1,
+      "description": "SOL, the Sun — the game’s fBm shader surface baked to a texture, with its slow spin animation."
+    },
+    {
+      "file": "glb/planets/mercury.glb",
+      "sizeKB": 285.8,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/planets/venus.glb",
+      "sizeKB": 213.4,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/planets/earth.glb",
+      "sizeKB": 316.6,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/planets/mars.glb",
+      "sizeKB": 287.9,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/planets/jupiter.glb",
+      "sizeKB": 320.8,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/planets/saturn.glb",
+      "sizeKB": 299.6,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/planets/uranus.glb",
+      "sizeKB": 161.8,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/planets/neptune.glb",
+      "sizeKB": 190.1,
+      "description": "Planet — surface texture (and clouds / rings / atmosphere where the game has them), with the game’s spin animation. Venus and Uranus spin retrograde, as in-game."
+    },
+    {
+      "file": "glb/moons/moon.glb",
+      "sizeKB": 244.3,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/phobos.glb",
+      "sizeKB": 240.1,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/deimos.glb",
+      "sizeKB": 225.6,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/io.glb",
+      "sizeKB": 243,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/europa.glb",
+      "sizeKB": 166.1,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/ganymede.glb",
+      "sizeKB": 273.8,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/callisto.glb",
+      "sizeKB": 277.4,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/titan.glb",
+      "sizeKB": 213.8,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/enceladus.glb",
+      "sizeKB": 119.9,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/moons/triton.glb",
+      "sizeKB": 211,
+      "description": "Moon — same generator as the planets, seeded exactly like SolarSystem.buildPlanets()."
+    },
+    {
+      "file": "glb/stations/earth-station.glb",
+      "sizeKB": 54,
+      "description": "Orbital space station — torus habitat, hub, spokes, window strip, beacon."
+    },
+    {
+      "file": "glb/stations/mars-station.glb",
+      "sizeKB": 54,
+      "description": "Orbital space station — torus habitat, hub, spokes, window strip, beacon."
+    },
+    {
+      "file": "glb/stations/jupiter-station.glb",
+      "sizeKB": 54,
+      "description": "Orbital space station — torus habitat, hub, spokes, window strip, beacon."
+    },
+    {
+      "file": "glb/stations/saturn-station.glb",
+      "sizeKB": 54,
+      "description": "Orbital space station — torus habitat, hub, spokes, window strip, beacon."
+    },
+    {
+      "file": "glb/asteroids/iron.glb",
+      "sizeKB": 8.8,
+      "description": "Asteroid — the game’s shared deformed-icosahedron rock (seed 777) in one of the four ore colours."
+    },
+    {
+      "file": "glb/asteroids/nickel.glb",
+      "sizeKB": 8.8,
+      "description": "Asteroid — the game’s shared deformed-icosahedron rock (seed 777) in one of the four ore colours."
+    },
+    {
+      "file": "glb/asteroids/ice.glb",
+      "sizeKB": 8.8,
+      "description": "Asteroid — the game’s shared deformed-icosahedron rock (seed 777) in one of the four ore colours."
+    },
+    {
+      "file": "glb/asteroids/rare.glb",
+      "sizeKB": 8.8,
+      "description": "Asteroid — the game’s shared deformed-icosahedron rock (seed 777) in one of the four ore colours."
+    },
+    {
+      "file": "glb/starfield.glb",
+      "sizeKB": 85.3,
+      "description": "The seed-42 starfield: three point layers + three nebula billboards."
+    },
+    {
+      "file": "glb/effects/particles-engine-sparks.glb",
+      "sizeKB": 6.4,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/effects/particles-mining-sparks.glb",
+      "sizeKB": 6.2,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/effects/particles-explosion.glb",
+      "sizeKB": 7,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/effects/mining-beam.glb",
+      "sizeKB": 2,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/effects/landing-dust-ring.glb",
+      "sizeKB": 3.8,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/effects/entry-streaks.glb",
+      "sizeKB": 1.5,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/effects/glow-heat-shield.glb",
+      "sizeKB": 32.2,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/effects/glow-engine-plume.glb",
+      "sizeKB": 34.8,
+      "description": "Effect geometry — a snapshot of a pooled particle burst, beam, dust ring or glow billboard."
+    },
+    {
+      "file": "glb/surface/props/outpost-base.glb",
+      "sizeKB": 67.3,
+      "description": "Surface prop — shared by every planetary surface scene."
+    },
+    {
+      "file": "glb/surface/props/rover.glb",
+      "sizeKB": 17.6,
+      "description": "Surface prop — shared by every planetary surface scene."
+    },
+    {
+      "file": "glb/surface/props/astronaut.glb",
+      "sizeKB": 88,
+      "description": "Surface prop — shared by every planetary surface scene."
+    },
+    {
+      "file": "glb/surface/props/supply-cache.glb",
+      "sizeKB": 10.4,
+      "description": "Surface prop — shared by every planetary surface scene."
+    },
+    {
+      "file": "glb/surface/props/sample-site.glb",
+      "sizeKB": 15.3,
+      "description": "Surface prop — shared by every planetary surface scene."
+    },
+    {
+      "file": "glb/surface/scenes/earth-surface.glb",
+      "sizeKB": 1717.9,
+      "description": "A complete procedural surface world: terrain, water, glows, ridges, streamed rocks, outpost, rover, caches, sample site and astronaut, laid out as in-game."
+    },
+    {
+      "file": "glb/surface/scenes/mars-surface.glb",
+      "sizeKB": 1735.1,
+      "description": "A complete procedural surface world: terrain, water, glows, ridges, streamed rocks, outpost, rover, caches, sample site and astronaut, laid out as in-game."
+    },
+    {
+      "file": "glb/surface/scenes/moon-surface.glb",
+      "sizeKB": 1726.2,
+      "description": "A complete procedural surface world: terrain, water, glows, ridges, streamed rocks, outpost, rover, caches, sample site and astronaut, laid out as in-game."
+    }
+  ]
+}

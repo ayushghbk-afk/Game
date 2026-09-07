@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solar Odyssey — 3D Model Viewer</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; color: #cfe2ff; background: #060a14; overflow: hidden; }
+  #drop {
+    position: fixed; inset: 0; display: flex; flex-direction: column; gap: 10px;
+    align-items: center; justify-content: center; text-align: center; padding: 24px;
+    border: 2px dashed #2a4a7a; margin: 16px; border-radius: 14px; z-index: 10;
+  }
+  #drop.hover { border-color: #6ec6ff; background: rgba(40,90,160,.12); }
+  #drop h1 { margin: 0; font-size: 22px; letter-spacing: .04em; color: #9fd8ff; }
+  #drop p { margin: 0; max-width: 560px; color: #8ba3c7; }
+  #pick { margin-top: 6px; padding: 10px 22px; border-radius: 999px; border: 0; cursor: pointer;
+    font: 600 14px system-ui; color: #04101f; background: linear-gradient(180deg,#8fd0ff,#4d9fe6); }
+  #hud { position: fixed; left: 0; right: 0; top: 0; padding: 10px 14px; z-index: 5;
+    display: none; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+  #hud .name { font: 600 16px system-ui; color: #bfe0ff; text-shadow: 0 1px 8px #000; }
+  #hud .hint { color: #7d93b8; font-size: 12px; }
+  #err { position: fixed; inset: auto 16px 16px; z-index: 20; display: none; padding: 10px 14px;
+    border-radius: 10px; background: #3a1420; color: #ffb0c4; border: 1px solid #7a2a44; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+  <div id="drop">
+    <h1>SOLAR ODYSSEY — 3D MODEL VIEWER</h1>
+    <p>Drop any <b>.glb</b> file from the <b>glb/</b> folder onto this page
+       (or click below) to view it. Drag to orbit, scroll to zoom, right-drag to pan.</p>
+    <p>Everything was extracted from the game with <code>tools/export-models.mjs</code>.</p>
+    <button id="pick">Choose a model…</button>
+    <input id="file" type="file" accept=".glb,.gltf" hidden>
+  </div>
+  <div id="hud">
+    <div class="name" id="name"></div>
+    <div class="hint">drag orbit · wheel zoom · right-drag pan · R reset · F frame</div>
+  </div>
+  <div id="err"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+const drop = document.getElementById('drop');
+const hud = document.getElementById('hud');
+const nameEl = document.getElementById('name');
+const errEl = document.getElementById('err');
+const input = document.getElementById('file');
+
+let renderer, scene, camera, controls, model, mixer, disposables = [];
+
+function init() {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  document.body.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x060a14);
+  scene.fog = new THREE.Fog(0x060a14, 9000, 16000);
+
+  camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 60000);
+  camera.position.set(3, 2, 6);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+
+  // lighting rig similar to the game: strong sun + gentle fill + rim
+  const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
+  sun.position.set(4, 6, 3);
+  scene.add(sun);
+  const rim = new THREE.DirectionalLight(0x5f7fae, 0.9);
+  rim.position.set(-5, 2, -4);
+  scene.add(rim);
+  scene.add(new THREE.AmbientLight(0x30405a, 1.1));
+
+  const grid = new THREE.GridHelper(40, 40, 0x24405f, 0x14203a);
+  grid.name = 'grid';
+  scene.add(grid);
+
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+  addEventListener('keydown', (e) => {
+    if (e.key === 'r' || e.key === 'R') { controls.reset(); camera.position.set(3, 2, 6); }
+    if (e.key === 'f' || e.key === 'F') frame();
+  });
+
+  renderer.setAnimationLoop(() => {
+    controls.update();
+    if (mixer) mixer.update(1 / 60);
+    renderer.render(scene, camera);
+  });
+}
+
+function clearModel() {
+  if (model) { scene.remove(model); }
+  disposables.forEach((d) => d.dispose && d.dispose());
+  disposables = [];
+  model = null; mixer = null;
+  const grid = scene.getObjectByName('grid');
+  if (grid) grid.visible = true;
+}
+
+function frame() {
+  if (!model) return;
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3()).length() || 1;
+  const center = box.getCenter(new THREE.Vector3());
+  const dist = size * 0.9;
+  camera.position.copy(center).add(new THREE.Vector3(dist * .55, dist * .4, dist * .75));
+  camera.near = Math.max(size / 1000, 0.001);
+  camera.far = Math.max(size * 60, 100);
+  camera.updateProjectionMatrix();
+  controls.target.copy(center);
+  controls.update();
+}
+
+function show(name, arrayBuffer) {
+  errEl.style.display = 'none';
+  clearModel();
+  const loader = new GLTFLoader();
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/draco/gltf/');
+  loader.setDRACOLoader(draco);
+  loader.parse(arrayBuffer, '', (gltf) => {
+    model = gltf.scene;
+    scene.add(model);
+    // play every embedded animation (planet spins, cloud drift…)
+    if (gltf.animations && gltf.animations.length) {
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
+    }
+    const grid = scene.getObjectByName('grid');
+    if (grid) grid.visible = model.children.length < 3; // hide for point-cloud skies
+    frame();
+    drop.style.display = 'none';
+    hud.style.display = 'flex';
+    nameEl.textContent = name;
+  }, (e) => error('Could not parse that file — is it a .glb? (' + e.message + ')'));
+}
+
+function error(msg) { errEl.textContent = msg; errEl.style.display = 'block'; }
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => show(file.name, reader.result);
+  reader.onerror = () => error('Could not read that file.');
+  reader.readAsArrayBuffer(file);
+}
+
+document.getElementById('pick').addEventListener('click', () => input.click());
+input.addEventListener('change', () => input.files[0] && loadFile(input.files[0]));
+addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('hover'); });
+addEventListener('dragleave', (e) => { e.preventDefault(); drop.classList.remove('hover'); });
+addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('hover');
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+init();
+</script>
+</body>
+</html>

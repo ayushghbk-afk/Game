@@ -2,7 +2,7 @@
   "name": "solar-odyssey",
   "private": true,
   "version": "2.0.0",
-  "description": "Solar Odyssey \u2014 a 3D solar system exploration game running entirely in the browser.",
+  "description": "Solar Odyssey — a 3D solar system exploration game running entirely in the browser.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,7 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "^1.0.8",
     "jsdom": "^30.0.1",
     "playwright-core": "^1.63.0",
     "vite": "^7.1.3"
