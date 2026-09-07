@@ -410,10 +410,24 @@ input.input, select.input {
   .toast-container { top: 104px; }
   .stat-label { width: 44px; font-size: 9px; }
   .hud-clock { display: none; }
-  .mc-actions { right: 160px; }
+
+  /* Compact, non-overlapping touch layout for phones. */
+  .joy-zone { width: 108px; height: 108px; bottom: 16px; }
+  .mc-left { left: 12px; }
+  .mc-right { right: 12px; }
+  .mc-actions {
+    right: 132px; bottom: 16px;
+    grid-template-columns: 58px; gap: 8px;
+  }
+  .mc-btn { width: 58px; height: 58px; font-size: 10px; }
+  .mc-top-actions { top: 8px; right: 8px; max-width: 50vw; }
 }
 @media (max-height: 460px) {
   .hud-bottom { bottom: 12px; }
-  .mc-actions { bottom: 10px; right: 160px; }
-  .joy-zone { width: 100px; height: 100px; bottom: 12px; }
+  .joy-zone { width: 92px; height: 92px; bottom: 8px; }
+  .mc-actions {
+    bottom: 8px; right: 116px;
+    grid-template-columns: 52px; gap: 6px;
+  }
+  .mc-btn { width: 52px; height: 52px; }
 }

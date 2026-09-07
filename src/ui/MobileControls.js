@@ -62,6 +62,7 @@ export class MobileControls {
         <button class="mc-btn mc-small" data-tap="target">TGT</button>
         <button class="mc-btn mc-small" data-tap="missions">LOG</button>
         <button class="mc-btn mc-small" data-tap="codex">CODEX</button>
+        <button class="mc-btn mc-small" data-tap="pause">PAUSE</button>
       </div>`;
     root.appendChild(this.wrap);
 
