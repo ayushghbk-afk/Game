@@ -192,6 +192,18 @@ server list and shared rocket designs.
    **Project URL** and **anon public key** (Supabase → Project Settings → API).
    They are stored in your browser, never in the repo.
 4. **CREATE ACCOUNT** / **SIGN IN**, and turn on **Settings → Cloud sync**.
+5. **URL configuration (important).** The game tells Supabase where to send
+   players after they click an email link (confirmation / password reset), but
+   Supabase only honors destinations on its allow-list — anything else falls
+   back to the project's Site URL, which defaults to `http://localhost:3000`.
+   In the dashboard: **Authentication → URL Configuration** —
+   set **Site URL** to the production URL
+   (`https://ayushghbk-afk.github.io/Game/` for this repo's GitHub Pages
+   deployment) and add these **Redirect URLs**:
+   `https://ayushghbk-afk.github.io/Game/**` and, for local development,
+   `http://localhost:3000/**` (plus `http://localhost:5173/**` /
+   `http://localhost:4173/**` if you test sign-up confirmation with
+   `npm run dev` / `npm run preview`).
 
 Prefer to bake the keys into a build? Set `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_ANON_KEY` before `npm run build`. The anon key is safe to ship —

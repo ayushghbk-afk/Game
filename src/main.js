@@ -4,6 +4,7 @@
 // production build, and a plain <link> is what a static host needs —
 // `import './style.css'` would be rejected as a non-JS MIME type.)
 import { Game } from './game/Game.js';
+import { backend } from './net/Backend.js';
 
 function hideBootError() {
   document.getElementById('boot-error')?.remove();
@@ -41,6 +42,10 @@ async function start() {
   const canvas = document.getElementById('game-canvas');
   const root = document.getElementById('app');
   try {
+    // Supabase hands confirmed-email / password-reset sessions back in the
+    // URL fragment (#access_token=…). Recover it BEFORE the game boots so
+    // the ACCOUNT panel already reflects the signed-in state.
+    await backend.handleAuthRedirect();
     const game = new Game(canvas, root);
     await game.boot();
     window.__SOLAR_BOOTED = true;

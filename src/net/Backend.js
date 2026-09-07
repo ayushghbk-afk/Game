@@ -14,6 +14,13 @@ import { DEFAULT_BACKEND } from './backendConfig.js';
 const CRED_KEY = 'solar-odyssey-backend-v1';
 const SESSION_KEY = 'solar-odyssey-session-v1';
 
+// Where confirmation / password-reset emails should bring players back to.
+// Normally derived from window.location at runtime (see Backend.appUrl) so it
+// is always the URL the game is actually running on — the production GitHub
+// Pages deployment for this repository is https://ayushghbk-afk.github.io/Game/
+// and this constant is only the fallback for non-browser contexts.
+const FALLBACK_APP_URL = 'https://ayushghbk-afk.github.io/Game/';
+
 function ls() {
   try {
     const t = '__so__'; localStorage.setItem(t, t); localStorage.removeItem(t);
@@ -154,8 +161,33 @@ export class Backend {
   }
 
   // ---------------------------------------------------------------- auth
+  /**
+   * The URL of the page the game is running on — where Supabase should send
+   * players back after email confirmation / password reset. Derived from
+   * window.location so it is correct on the production GitHub Pages site
+   * (https://ayushghbk-afk.github.io/Game/) AND in local dev, instead of
+   * letting Supabase fall back to whatever Site URL happens to be
+   * configured in the dashboard (the old localhost:3000 bug).
+   */
+  get appUrl() {
+    try {
+      const loc = typeof window !== 'undefined' ? window.location : null;
+      if (loc && typeof loc.origin === 'string' && /^https?:/.test(loc.origin)) {
+        let path = loc.pathname || '/';
+        if (path.endsWith('index.html')) path = path.slice(0, -'index.html'.length);
+        if (!path.endsWith('/')) path += '/';
+        return loc.origin + path;
+      }
+    } catch { /* non-browser context — use the fallback below */ }
+    return FALLBACK_APP_URL;
+  }
+
   async signUp(email, password, handle) {
-    const body = await this._fetch('/auth/v1/signup', {
+    const redirectTo = this.appUrl;
+    // IMPORTANT: GoTrue reads redirect_to from the QUERY STRING of the
+    // request (this is also how supabase-js sends it) — a field in the JSON
+    // body is ignored, which is why it lives on the URL.
+    const body = await this._fetch('/auth/v1/signup?redirect_to=' + encodeURIComponent(redirectTo), {
       method: 'POST',
       body: JSON.stringify({ email, password, data: { handle } })
     });
@@ -166,8 +198,116 @@ export class Backend {
       this.emit('auth', this.user);
       return { confirmed: true };
     }
-    // Email confirmation is on for this project.
-    return { confirmed: false };
+    // Email confirmation is on for this project: the confirmation link
+    // brings the player back to `redirectTo`, where handleAuthRedirect()
+    // picks the session up.
+    return { confirmed: false, redirectTo };
+  }
+
+  /**
+   * Supabase hands sessions back from email links in the URL FRAGMENT:
+   *   https://…/Game/#access_token=…&refresh_token=…&type=signup|recovery
+   * (GoTrue's verify endpoint 302s to redirect_to and blindly appends
+   * "#<params>"). Parse that, validate the token against /auth/v1/user,
+   * persist the session and strip the tokens out of the address bar.
+   * Returns true when a session was recovered. Must run before any UI
+   * checks backend.signedIn.
+   */
+  async handleAuthRedirect() {
+    try {
+      if (typeof window === 'undefined') return false;
+      const rawHash = window.location?.hash || '';
+      if (!rawHash) return false;
+
+      // A redirect_to that already carried a fragment ("…#reset-password")
+      // ends up with a DOUBLE fragment because GoTrue appends "#params"
+      // unconditionally — the token block is always the segment containing
+      // access_token=.
+      const segments = rawHash.split('#').filter(Boolean);
+      const tokenSeg = segments.find((s) => s.includes('access_token='));
+      if (!tokenSeg) {
+        if (segments.some((s) => s.startsWith('error='))) {
+          const err = new URLSearchParams(segments[segments.length - 1]);
+          console.warn('[Solar Odyssey] Auth link rejected:',
+            err.get('error_description') || err.get('error'));
+          this._cleanUrl();
+        }
+        return false;
+      }
+
+      const params = new URLSearchParams(tokenSeg);
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      if (!accessToken || !refreshToken) return false;
+
+      const expiresIn = Number(params.get('expires_in') || 3600);
+      this.session = {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: expiresIn,
+        expires_at: Math.floor(Date.now() / 1000) + expiresIn,
+        token_type: params.get('token_type') || 'bearer',
+        // 'signup' = email just confirmed, 'recovery' = password-reset link
+        type: params.get('type') || 'signup'
+      };
+
+      const user = await this._fetch('/auth/v1/user');
+      this.session.user = user;
+      this._persistSession();
+
+      await this.ensureProfile();
+      this._cleanUrl();
+      this.emit('auth', this.user);
+      return true;
+    } catch (err) {
+      console.error('[Solar Odyssey] Failed to process auth redirect:', err);
+      this.session = null;
+      this._persistSession();
+      return false;
+    }
+  }
+
+  /** Remove the token fragment from the visible address bar. */
+  _cleanUrl() {
+    try {
+      if (typeof window === 'undefined' || !window.location) return;
+      window.history?.replaceState({}, (typeof document !== 'undefined' && document.title) || '',
+        window.location.origin + window.location.pathname + window.location.search);
+    } catch { /* file:// or sandboxed iframe — cosmetic only */ }
+  }
+
+  /**
+   * Email a password-reset link. It brings the player back to the game with
+   * a recovery session in the fragment (type=recovery), which
+   * handleAuthRedirect() picks up on next boot — ACCOUNT then offers
+   * "SET NEW PASSWORD". NOTE: redirect_to intentionally has NO #fragment:
+   * GoTrue appends its own "#access_token=…" and a fragment here would end
+   * up doubled.
+   */
+  async sendPasswordReset(email) {
+    const redirectTo = this.appUrl;
+    return this._fetch('/auth/v1/recover?redirect_to=' + encodeURIComponent(redirectTo), {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+  }
+
+  /**
+   * Change the signed-in player's password. This is the last step of the
+   * reset flow: the recovery link already signed the player in
+   * (session.type === 'recovery'), this replaces the actual password.
+   */
+  async updatePassword(newPassword) {
+    if (!this.signedIn) throw new Error('Sign in first — open the reset link from your email.');
+    await this._fetch('/auth/v1/user', {
+      method: 'PUT',
+      body: JSON.stringify({ password: newPassword })
+    });
+    if (this.session) {
+      delete this.session.type; // reset finished
+      this._persistSession();
+    }
+    return true;
   }
 
   async signIn(email, password) {

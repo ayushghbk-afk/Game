@@ -77,6 +77,35 @@ export class AccountPanel {
       </div>`;
     b.appendChild(card);
 
+    if (signed && be.session?.type === 'recovery') {
+      // Arrived through a password-reset email link: the recovery token
+      // already signed the player in — all that's left is a new password.
+      b.appendChild(el('p', 'dim',
+        'You signed in through a password reset link. Choose a new password to finish.'));
+      const np = this._input('password', 'new password');
+      const savePass = el('button', 'btn btn-primary', 'SET NEW PASSWORD');
+      savePass.addEventListener('click', async () => {
+        const v = np.value;
+        if (!v || v.length < 6) {
+          this._status('The new password needs at least 6 characters.', 'error');
+          return;
+        }
+        savePass.disabled = true;
+        try {
+          await be.updatePassword(v);
+          this.hooks.toast?.('PASSWORD UPDATED', 'Your new password is set, Commander.', 'success');
+          this.render();
+          this.hooks.onChanged?.();
+        } catch (e) {
+          this._status(e?.message || String(e), 'error');
+          savePass.disabled = false;
+        }
+      });
+      const row = el('div', 'btn-row');
+      row.append(np, savePass);
+      b.appendChild(row);
+    }
+
     if (!signed) {
       const rename = el('div', 'form-row');
       const nameIn = this._input('text', 'Commander name', id.name);
@@ -196,7 +225,8 @@ export class AccountPanel {
         if (isSignUp) {
           const res = await this.hooks.backend.signUp(email.value.trim(), pass.value, handle.value.trim());
           if (!res.confirmed) {
-            status.textContent = 'Account created — check your email to confirm, then sign in.';
+            status.textContent = 'Account created — open the link in the confirmation email; ' +
+              'it brings you back here and signs you in automatically.';
             status.className = 'form-status ok';
             go.disabled = false;
             return;
@@ -217,6 +247,28 @@ export class AccountPanel {
     go.addEventListener('click', submit);
     pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     row.append(go, alt, back);
+    if (!isSignUp) {
+      const forgot = el('button', 'btn', 'FORGOT PASSWORD');
+      forgot.addEventListener('click', async () => {
+        const addr = email.value.trim();
+        if (!addr) {
+          this._status('Type your email address above first.', 'error');
+          return;
+        }
+        forgot.disabled = true;
+        const note = this._status('Requesting a reset link…');
+        try {
+          await this.hooks.backend.sendPasswordReset(addr);
+          note.textContent = 'Reset link sent — open it on this device and you can pick a new password here.';
+          note.className = 'form-status ok';
+        } catch (e) {
+          note.textContent = e?.message || String(e);
+          note.className = 'form-status error';
+          forgot.disabled = false;
+        }
+      });
+      row.appendChild(forgot);
+    }
     b.appendChild(row);
   }
 }
