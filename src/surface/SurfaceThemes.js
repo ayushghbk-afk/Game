@@ -1,9 +1,11 @@
 // ============================================================
 // SurfaceThemes — research-grounded surface maps for EVERY body.
 //
-// Each theme shapes a 900×900 u procedural map from real planetary
-// science, so no two worlds look the same. Feature placements and
-// morphology follow the latest mapping of each world:
+// Each theme shapes an 1800×1800 u procedural map from real planetary
+// science, so no two worlds look the same. Feature coordinates below
+// are authored in a 900-unit frame and scaled 2× by SurfaceScene so
+// landmarks keep their relative layout on the bigger world.
+// Morphology follows the latest mapping of each world:
 //
 //  · MERCURY — BepiColombo M-CAM / MERTIS flybys (Dec 2024 – Jan 2025):
 //    Borealis Planitia lava plains flooding old craters, the 1,500 km

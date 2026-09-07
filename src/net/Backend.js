@@ -483,10 +483,98 @@ export class Backend {
     };
   }
 
+  /**
+   * Search commanders by callsign. PostgREST `ilike.*foo*` needs the pattern
+   * quoted when it contains reserved characters — without quotes the `*` is
+   * eaten by the URL parser and the search silently returns nothing. We also
+   * try the RPC if the project has schema-v3 installed (works for guests on
+   * the public profiles view).
+   */
   async findPlayers(handle) {
     if (!this.configured) return [];
-    const q = 'handle=ilike.*' + encodeURIComponent(handle) + '*&select=id,handle,region&limit=15';
-    return (await this._rest('profiles', q)) || [];
+    const raw = String(handle || '').trim();
+    if (raw.length < 2) return [];
+    // Prefer the SECURITY DEFINER RPC when available — it works whether or
+    // not the caller is signed in, and uses a proper parameterized ILIKE.
+    try {
+      const viaRpc = await this._rpc('search_players', { query: raw, max_rows: 15 });
+      if (Array.isArray(viaRpc)) return viaRpc;
+    } catch { /* RPC missing on older projects — fall through to REST */ }
+
+    // REST fallback. Quote the pattern so `*`, commas and spaces survive.
+    const pattern = `*${raw.replace(/[*",]/g, '')}*`;
+    const q = 'handle=ilike.' + encodeURIComponent('"' + pattern + '"') +
+      '&select=id,handle,region,last_seen&limit=15&order=handle.asc';
+    try {
+      return (await this._rest('profiles', q)) || [];
+    } catch (e) {
+      // Last resort: exact prefix match without wildcards.
+      try {
+        const q2 = 'handle=ilike.' + encodeURIComponent(raw.replace(/[%_*,"]/g, '') + '%') +
+          '&select=id,handle,region,last_seen&limit=15';
+        return (await this._rest('profiles', q2)) || [];
+      } catch {
+        throw e;
+      }
+    }
+  }
+
+  /**
+   * Everyone currently on a given server (for the co-op roster / multiplayer
+   * discovery when Realtime is unavailable). Joins profiles so the UI has
+   * handles without a second round-trip.
+   */
+  async listServerPresence(serverId) {
+    if (!this.configured || !serverId) return [];
+    // Try the embed first; fall back to a plain select + manual join if the
+    // FK relationship isn't exposed.
+    try {
+      const rows = await this._rest(
+        'presence',
+        'server_id=eq.' + encodeURIComponent(serverId) +
+          '&status=neq.offline&select=user_id,status,location,updated_at,profiles(handle,region)&order=updated_at.desc'
+      );
+      return (rows || []).map(r => ({
+        user_id: r.user_id,
+        status: r.status,
+        location: r.location,
+        updated_at: r.updated_at,
+        handle: r.profiles?.handle || r.handle || null,
+        region: r.profiles?.region || null
+      }));
+    } catch {
+      const rows = (await this._rest(
+        'presence',
+        'server_id=eq.' + encodeURIComponent(serverId) +
+          '&status=neq.offline&select=user_id,status,location,updated_at&order=updated_at.desc'
+      )) || [];
+      if (!rows.length) return rows;
+      const ids = rows.map(r => r.user_id).filter(Boolean);
+      let people = [];
+      if (ids.length) {
+        people = (await this._rest('profiles', 'id=in.(' + ids.join(',') + ')&select=id,handle,region')) || [];
+      }
+      const byId = new Map(people.map(p => [p.id, p]));
+      return rows.map(r => {
+        const p = byId.get(r.user_id);
+        return { ...r, handle: p?.handle || null, region: p?.region || null };
+      });
+    }
+  }
+
+  /**
+   * Drop an invite notice into the friend's presence.location so their client
+   * can pick it up on the next poll. Realtime carries the live invite; this
+   * is the durable fallback.
+   */
+  async sendInvite(friendId, server) {
+    if (!this.signedIn) throw new Error('Sign in to invite friends.');
+    if (!friendId || !server?.id) throw new Error('Missing friend or server.');
+    return this._rpc('send_coop_invite', {
+      target_user: friendId,
+      target_server: server.id,
+      server_name: server.name || 'Co-op expedition'
+    });
   }
 
   async addFriend(friendId) {

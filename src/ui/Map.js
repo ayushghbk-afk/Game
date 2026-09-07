@@ -54,62 +54,146 @@ export class MapView {
     if (!this.open) return;
     const ctx = this.ctx;
     const w = this.canvas.width, h = this.canvas.height;
-    const size = { w, h };
     ctx.clearRect(0, 0, w, h);
     const dpr = devicePixelRatio;
     ctx.scale(dpr, dpr);
     const W = w / dpr, H = h / dpr;
+    const maxR = Math.min(W, H) * 0.44;
 
-    // orbits
+    // deep-space backdrop (gradient when the 2D context supports it)
+    if (typeof ctx.createRadialGradient === 'function') {
+      const bg = ctx.createRadialGradient(W / 2, H / 2, 4, W / 2, H / 2, maxR * 1.2);
+      bg.addColorStop(0, 'rgba(20, 36, 70, 0.55)');
+      bg.addColorStop(0.55, 'rgba(6, 12, 28, 0.2)');
+      bg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = bg;
+    } else {
+      ctx.fillStyle = 'rgba(8, 14, 28, 0.35)';
+    }
+    ctx.fillRect(0, 0, W, H);
+
+    // faint star dust
+    if (!this._stars) {
+      this._stars = Array.from({ length: 90 }, () => ({
+        x: Math.random(), y: Math.random(), r: 0.4 + Math.random() * 1.2, a: 0.25 + Math.random() * 0.55
+      }));
+    }
+    for (const s of this._stars) {
+      ctx.fillStyle = `rgba(200,220,255,${s.a})`;
+      ctx.beginPath();
+      ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // AU grid rings (subtle distance markers)
+    ctx.strokeStyle = 'rgba(90,120,170,0.12)';
+    ctx.lineWidth = 1;
+    ctx.font = '9px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(120,150,190,0.45)';
+    ctx.textAlign = 'left';
+    for (const au of [0.5, 1, 2, 5, 10, 20, 30]) {
+      // match config compression roughly: 40 + 120 * AU^0.72
+      const orbit = 40 + 120 * Math.pow(au, 0.72);
+      const mr = this._mapRadius(orbit, maxR);
+      ctx.beginPath(); ctx.arc(W / 2, H / 2, mr, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillText(au + ' AU', W / 2 + mr + 4, H / 2 - 2);
+    }
+
+    // planetary orbits (thicker, labelled)
     for (const p of PLANETS) {
-      const mr = this._mapRadius(p.orbitRadius, Math.min(W, H) * 0.42);
-      ctx.strokeStyle = 'rgba(110,140,190,0.25)';
-      ctx.lineWidth = 1;
+      const mr = this._mapRadius(p.orbitRadius, maxR);
+      ctx.strokeStyle = 'rgba(110,150,210,0.32)';
+      ctx.lineWidth = 1.25;
       ctx.beginPath();
       ctx.arc(W / 2, H / 2, mr, 0, Math.PI * 2);
       ctx.stroke();
     }
-    // belt
-    const rb1 = this._mapRadius(252, Math.min(W, H) * 0.42);
-    const rb2 = this._mapRadius(300, Math.min(W, H) * 0.42);
-    ctx.strokeStyle = 'rgba(160,130,90,0.3)';
-    ctx.setLineDash([2, 5]);
+    // belt band
+    const rb1 = this._mapRadius(252, maxR);
+    const rb2 = this._mapRadius(300, maxR);
+    ctx.strokeStyle = 'rgba(180,140,80,0.28)';
+    ctx.lineWidth = Math.max(6, (rb2 - rb1));
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, (rb1 + rb2) / 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.strokeStyle = 'rgba(200,160,90,0.45)';
     ctx.beginPath(); ctx.arc(W / 2, H / 2, (rb1 + rb2) / 2, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
 
     const dots = [];
-    const dot = (x, y, r, color, label, id, kind) => {
+    const dot = (x, y, r, color, label, id, kind, glow) => {
       const p = this._project(x, y, { w: W, h: H });
-      dots.push({ ...p, id, kind, label });
+      dots.push({ ...p, id, kind, label, r });
+      if (glow && typeof ctx.createRadialGradient === 'function') {
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.2);
+        g.addColorStop(0, color + 'aa');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r * 3.2, 0, Math.PI * 2); ctx.fill();
+      }
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(210,225,255,0.85)';
-      ctx.font = '10px system-ui, sans-serif';
+      // rim
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(220,235,255,0.92)';
+      ctx.font = kind === 'planet' ? 'bold 11px system-ui, sans-serif' : '10px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(label, p.x, p.y - r - 5);
+      ctx.fillText(label, p.x, p.y - r - 6);
     };
 
     // sun
-    dot(0, 0, 7, '#ffcf6e', 'SOL', 'sun', 'star');
+    dot(0, 0, 9, '#ffcf6e', 'SOL', 'sun', 'star', true);
     // planets + moons + stations
     for (const p of PLANETS) {
       const body = game.solar.getBody(p.id);
+      if (!body) continue;
       const pos = body.group.position;
       const vis = game.gs.state.visited.includes(p.id);
-      dot(pos.x, pos.z, p.radius > 6 ? 5 : 3.4, vis ? '#' + p.color.toString(16).padStart(6, '0') : '#5a6a85',
-        p.name, p.id, 'planet');
+      const scanned = game.gs.state.discoveries.includes(p.id);
+      const col = vis
+        ? '#' + p.color.toString(16).padStart(6, '0')
+        : scanned ? '#8aa0c0' : '#4a5568';
+      const pr = p.radius > 6 ? 6.5 : p.radius > 3 ? 5 : 3.8;
+      dot(pos.x, pos.z, pr, col, p.name, p.id, 'planet', vis);
+      // landable marker
+      if (scanned) {
+        const pp = this._project(pos.x, pos.z, { w: W, h: H });
+        ctx.strokeStyle = 'rgba(125,255,168,0.55)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(pp.x, pp.y, pr + 4, 0, Math.PI * 2); ctx.stroke();
+      }
       for (const moon of (game.solar.moonsByPlanet.get(p.id) || [])) {
         const mp = moon.group.position;
         const mvis = game.gs.state.visited.includes(moon.id);
-        dot(mp.x, mp.z, 2, mvis ? '#cfd8e8' : '#4a5568', moon.name, moon.id, 'moon');
+        const mscan = game.gs.state.discoveries.includes(moon.id);
+        dot(mp.x, mp.z, 2.2, mvis ? '#cfd8e8' : mscan ? '#8a96aa' : '#3a4558', moon.name, moon.id, 'moon', false);
       }
     }
     for (const st of game.solar.stations) {
-      dot(st.group.position.x, st.group.position.z, 2.6, '#' + st.cfg.color.toString(16).padStart(6, '0'), '◆', st.id, 'station');
+      dot(st.group.position.x, st.group.position.z, 2.8,
+        '#' + st.cfg.color.toString(16).padStart(6, '0'), '◆ ' + (st.name || ''), st.id, 'station', false);
     }
     for (const an of game.solar.anomalies) {
       if (game.gs.state.anomalies.includes(an.cfg.id)) continue;
-      dot(an.pos.x, an.pos.z, 2.4, '#e86aff', '?', an.cfg.id, 'anomaly');
+      dot(an.pos.x, an.pos.z, 2.6, '#e86aff', '?', an.cfg.id, 'anomaly', true);
+    }
+
+    // crew ships (multiplayer)
+    if (game.mp?.active) {
+      for (const p of game.mp.peerList) {
+        if (!p.pos || (typeof p.mode === 'string' && p.mode.startsWith('surface'))) continue;
+        const rp = this._project(p.pos[0], p.pos[2], { w: W, h: H });
+        ctx.fillStyle = '#7dffa8';
+        ctx.beginPath();
+        ctx.moveTo(rp.x, rp.y - 5); ctx.lineTo(rp.x + 3.5, rp.y + 4); ctx.lineTo(rp.x - 3.5, rp.y + 4);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(125,255,168,0.9)';
+        ctx.font = '9px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.handle || 'CREW', rp.x, rp.y + 14);
+      }
     }
 
     // ship
@@ -119,12 +203,16 @@ export class MapView {
     const fwd = game.forwardFlat();
     ctx.rotate(Math.atan2(fwd.x, -fwd.z) * -1 + Math.PI);
     ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(110,198,255,0.8)';
+    ctx.shadowBlur = 8;
     ctx.beginPath();
-    ctx.moveTo(0, -7); ctx.lineTo(4.5, 6); ctx.lineTo(0, 3.4); ctx.lineTo(-4.5, 6);
+    ctx.moveTo(0, -8); ctx.lineTo(5, 7); ctx.lineTo(0, 4); ctx.lineTo(-5, 7);
     ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.font = '10px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
     ctx.fillText('YOU', sp.x, sp.y + 18);
 
     // target line
@@ -132,14 +220,23 @@ export class MapView {
     if (tgt) {
       const tp = dots.find(d => d.id === tgt.id);
       if (tp) {
-        ctx.strokeStyle = 'rgba(255,180,80,0.75)';
+        ctx.strokeStyle = 'rgba(255,180,80,0.8)';
         ctx.setLineDash([6, 4]);
         ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.lineTo(tp.x, tp.y); ctx.stroke();
         ctx.setLineDash([]);
         ctx.strokeStyle = '#ffb450';
-        ctx.beginPath(); ctx.arc(tp.x, tp.y, 9, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(tp.x, tp.y, 11, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1;
       }
     }
+
+    // legend
+    ctx.textAlign = 'left';
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(180,200,230,0.7)';
+    ctx.fillText('● visited   ○ scanned (landable)   ◆ station   ? anomaly', 16, H - 14);
+
     this._dots = dots;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }

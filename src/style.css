@@ -41,6 +41,7 @@ html, body {
 #app > .toast-container,
 #app > .screen-flash,
 #app > .screen-fade,
+#app > .landing-hud,
 #app > .mobile-controls { pointer-events: none; }
 button { font-family: var(--font); }
 
@@ -788,6 +789,76 @@ input.input, select.input {
 
 /* ---------- small inputs ---------- */
 .input-small { padding: 5px 9px; font-size: 11px; }
+
+/* ---------- multiplayer / co-op roster ---------- */
+.mp-hud {
+  position: absolute; top: 58px; left: 14px; z-index: 28;
+  width: min(280px, 78vw);
+  background: rgba(6, 14, 28, 0.82); border: 1px solid rgba(125, 255, 168, 0.35);
+  border-radius: 8px; padding: 10px 12px;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+.mp-hud.hidden { display: none; }
+.mp-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: 0.18em; color: #fff; margin-bottom: 8px;
+}
+.mp-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--good); box-shadow: 0 0 10px var(--good);
+  animation: mpPulse 1.6s ease-in-out infinite;
+}
+@keyframes mpPulse { 50% { opacity: 0.45; } }
+.mp-roster { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+.mp-peer {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; color: var(--ink); padding: 3px 0;
+}
+.mp-peer b { color: #fff; letter-spacing: 0.06em; }
+.mp-peer .dim { margin-left: auto; font-size: 10px; }
+.mp-peer-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--good); flex: none;
+}
+.mp-cargo {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(110, 180, 255, 0.18);
+  font-size: 10px; color: var(--accent2); letter-spacing: 0.04em; line-height: 1.5;
+}
+.mp-cargo-title { font-size: 9px; letter-spacing: 0.22em; color: var(--dim); margin-bottom: 3px; }
+.mp-leave { margin-top: 10px; width: 100%; font-size: 10px; letter-spacing: 0.14em; }
+
+/* ---------- landing cinematic HUD ---------- */
+.landing-hud {
+  position: fixed; inset: 0; z-index: 36;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-end;
+  padding: 0 18px max(28px, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(2, 5, 14, 0.55) 0%, transparent 45%);
+  pointer-events: none;
+}
+.landing-hud.hidden { display: none; }
+.landing-hud .lh-skip { pointer-events: auto; margin-top: 14px; }
+.lh-badge {
+  font-size: 11px; letter-spacing: 0.42em; color: var(--accent2);
+  text-shadow: 0 0 18px rgba(255, 179, 71, 0.55); margin-bottom: 6px;
+}
+.lh-caption {
+  font-size: clamp(16px, 3.4vw, 26px); font-weight: 200; letter-spacing: 0.2em;
+  color: #fff; text-shadow: 0 0 28px rgba(110, 198, 255, 0.55);
+  margin-bottom: 14px; text-align: center;
+}
+.lh-bar {
+  width: min(420px, 78vw); height: 6px;
+  background: rgba(5, 10, 22, 0.85); border: 1px solid var(--panel-border);
+  border-radius: 4px; overflow: hidden;
+}
+.lh-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), #ff7043);
+  transition: width 0.12s linear;
+  box-shadow: 0 0 12px rgba(255, 179, 71, 0.5);
+}
 
 /* ---------- responsive: stack the menu browser under the nav ---------- */
 @media (max-width: 900px) {

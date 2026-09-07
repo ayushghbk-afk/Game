@@ -1530,6 +1530,128 @@ await check('my likes come back as a fast lookup set', async () => {
   assert((await new Backend().myRocketLikes()).size === 0, 'guest had likes');
 });
 
+// =====================================================================
+console.log('\n== FRIEND SEARCH + MULTIPLAYER ==');
+await check('findPlayers quotes the ilike pattern (no silent empty results)', async () => {
+  localStorage.clear();
+  const calls = mockFetch([
+    // RPC missing on older projects → 404, fall through to REST
+    ['/rest/v1/rpc/search_players', { status: 404, body: { message: 'not found' } }],
+    ['/rest/v1/profiles', { body: [{ id: 'u2', handle: 'NovaRook' }] }]
+  ]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  be.session = { access_token: 't', user: { id: 'u1' } };
+  const people = await be.findPlayers('Nova');
+  assert(people.length === 1 && people[0].handle === 'NovaRook', 'search returned nothing');
+  const rest = calls.find(c => c.url.includes('/profiles') && c.url.includes('ilike'));
+  assert(rest, 'REST fallback never fired');
+  // The pattern must be quoted so PostgREST keeps the wildcards.
+  assert(/%22%2ANova%2A%22|%22\*Nova\*%22|"\*Nova\*"/i.test(rest.url) || rest.url.includes('%2A'),
+    'ilike pattern was not wildcard-quoted: ' + rest.url);
+});
+
+await check('findPlayers prefers the search_players RPC when available', async () => {
+  localStorage.clear();
+  const calls = mockFetch([
+    ['/rest/v1/rpc/search_players', { body: [{ id: 'u9', handle: 'HaloScout' }] }]
+  ]);
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  be.session = { access_token: 't', user: { id: 'u1' } };
+  const people = await be.findPlayers('Halo');
+  assert(people[0].handle === 'HaloScout', 'RPC result ignored');
+  assert(calls[0].url.includes('search_players'), 'did not call the RPC');
+  assert(JSON.parse(calls[0].body).query === 'Halo', 'query not passed through');
+});
+
+await check('findPlayers rejects short queries without hitting the network', async () => {
+  localStorage.clear();
+  const calls = [];
+  globalThis.fetch = async (u) => { calls.push(u); return { ok: true, status: 200, text: async () => '[]' }; };
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  assert((await be.findPlayers('a')).length === 0);
+  assert((await be.findPlayers('')).length === 0);
+  assert(calls.length === 0, 'short query still hit the network');
+});
+
+await check('MultiplayerSession seeds shared cargo and elects a host', async () => {
+  const { MultiplayerSession, emptyCargo } = await import('../src/net/Multiplayer.js');
+  localStorage.clear();
+  const be = new Backend();
+  be.configure('https://demo.supabase.co', 'anon');
+  be.session = { access_token: 't', user: { id: 'u-host' } };
+  be.profile = { handle: 'HostPilot' };
+  // Silence network: presence / heartbeat are best-effort.
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '[]' });
+
+  const cargoSnaps = [];
+  const mp = new MultiplayerSession(be, {
+    getLocalState: () => ({
+      handle: 'HostPilot', mode: 'space',
+      position: { x: 1, y: 2, z: 3 },
+      quaternion: { x: 0, y: 0, z: 0, w: 1 },
+      velocity: { x: 0, y: 0, z: 0 },
+      resources: { iron: 5, food: 2 }, credits: 100
+    }),
+    onSharedCargo: (r, c) => cargoSnaps.push({ r, c }),
+    onPeers: () => {}
+  });
+  await mp.join({ id: 'srv-1', name: 'Test Gate', owner_id: 'u-host', region: 'eu-west' });
+  assert(mp.active, 'session not active');
+  assert(mp.isHost, 'owner should be host');
+  assert(mp.sharedCargo.iron === 5, 'shared cargo not seeded from local hold');
+  // Simulate a peer state broadcast.
+  mp._onEvent('state', {
+    id: 'u-peer', handle: 'Wingman', mode: 'space',
+    pos: [10, 0, 10], quat: [0, 0, 0, 1], location: 'EARTH ORBIT'
+  });
+  assert(mp.peers.has('u-peer') && mp.playerCount === 2, 'peer not tracked');
+  // Peer cargo with newer epoch is accepted when we are still host-authoritative
+  // only if it comes from the host — a non-host cargo with higher epoch still lands
+  // when peers exist only if epoch advances; push from host instead:
+  mp.pushCargo({ iron: 9, food: 2 }, 150);
+  assert(mp.sharedCargo.iron === 9 && mp.sharedCredits === 150, 'host cargo push failed');
+  await mp.leave();
+  assert(!mp.active, 'leave did not clear session');
+  assert(emptyCargo().iron === 0, 'emptyCargo helper broken');
+});
+
+await check('LandingSequence reaches touchdown and calls onDone', async () => {
+  const { LandingSequence } = await import('../src/fx/LandingSequence.js');
+  // Minimal surface stub — enough for the cinematic to drive.
+  const surface = {
+    basePos: { x: 0, y: 0, z: 0, clone() { return { x: 0, y: 0, z: 0 }; } },
+    heightAt: () => 0,
+    vehicleMode: 'shuttle', landed: false, yaw: 0, pitch: 0,
+    shipState: {
+      position: { x: 0, y: 0, z: 0, copy(p) { this.x = p.x; this.y = p.y; this.z = p.z; return this; }, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
+      velocity: { x: 0, y: 0, z: 0, set() {} },
+      quaternion: { identity() {}, setFromEuler() {}, copy() {} },
+      speed: 0
+    },
+    ship: {
+      group: { position: { copy() {} }, quaternion: { copy() {} }, visible: true },
+      flame: { scale: { setScalar() {} }, material: { opacity: 0 } },
+      engineLight: { intensity: 0 }
+    },
+    scene: { add() {} },
+    streamer: { update() {} },
+    theme: { cloudDeck: false }
+  };
+  const camera = {
+    position: { set() {} }, lookAt() {}, fov: 70, updateProjectionMatrix() {}
+  };
+  let done = false;
+  const seq = new LandingSequence(surface, camera, { onDone: () => { done = true; } });
+  // Fast-forward past the full cinematic.
+  for (let i = 0; i < 600 && !seq.done; i++) seq.update(0.05);
+  assert(seq.done && done, 'landing never finished');
+  assert(surface.landed === true, 'surface not marked landed');
+  seq.dispose();
+});
+
 globalThis.fetch = realFetch;
 
 console.log(`${passed} passed, ${failed} failed`);

@@ -25,13 +25,17 @@ import { buildShipMesh } from '../spacecraft/Ship.js';
 import { themeFor } from '../surface/SurfaceThemes.js';
 import { ObjectStreamer } from '../world/ObjectStreamer.js';
 
-const SIZE = 900;
-const SEG = 88;
-const BASE_RANGE = 34;        // how close you must be to enter the outpost
-const ROVER_RANGE = 34;       // how close to a broken rover you must be to repair
-const SHUTTLE_RANGE = 30;     // how close to the parked shuttle to re-board it
-const CACHE_RANGE_FOOT = 7;   // pick-up radius on foot
-const CACHE_RANGE_VEHICLE = 16;
+// Playable surface is ~4× the original area (1800×1800) with denser
+// tessellation so canyons, dunes and named landmarks actually read at range.
+export const SIZE = 1800;
+export const SEG = 140;
+const BASE_RANGE = 40;        // how close you must be to enter the outpost
+const ROVER_RANGE = 40;       // how close to a broken rover you must be to repair
+const SHUTTLE_RANGE = 34;     // how close to the parked shuttle to re-board it
+const CACHE_RANGE_FOOT = 8;   // pick-up radius on foot
+const CACHE_RANGE_VEHICLE = 18;
+/** Theme authoring was done on a 900-unit map — scale features up to match. */
+export const THEME_SCALE = 2;
 const FOOT_SPEED = 5.6;
 const FOOT_SPRINT = 11.5;
 const JUMP_HEIGHT = 2.6;      // ~2.6 m EVA jump (hang time scales w/ gravity)
@@ -53,10 +57,11 @@ export class SurfaceScene {
     this.id = bodyCfg.id;
     this.quality = quality;
     this.streamQuality = opts.streaming || (quality === 'low' ? 'low' : 'medium');
-    this.theme = themeFor(bodyCfg);
+    this.theme = this._scaleTheme(themeFor(bodyCfg));
     this.scene = new THREE.Scene();
     this.gravAccel = 3.4 * Math.sqrt(bodyCfg.gravity || 0.3);
     this.seedBase = 900 + (this.id.length * 131) + [...this.id].reduce((a, c) => a + c.charCodeAt(0), 0) * 7;
+    this.worldSize = SIZE;
 
     // ship state (the hover shuttle)
     this.ship = buildShipMesh();
@@ -99,6 +104,7 @@ export class SurfaceScene {
     this._buildTerrain();
     this._buildSky();
     this._buildFeatureGlows();
+    this._buildDetailMeshes();  // extra ridges / rock fields for the bigger map
     this._buildBase();      // must precede _buildProps: streaming keeps the pad clear
     this._buildProps();
     this._buildLandmarkLabels();
@@ -108,6 +114,85 @@ export class SurfaceScene {
     this._buildSampleSite();
     this._buildAstronaut();
     this.scene.add(this.ship.group);
+  }
+
+  /**
+   * Theme coordinates were authored for a 900-unit map. Scale every planar
+   * dimension so landmarks still sit in the right relative place on the
+   * larger 1800-unit surface, and bump prop/cache counts for the extra area.
+   */
+  _scaleTheme(th) {
+    const s = THEME_SCALE;
+    const out = { ...th, features: (th.features || []).map(f => {
+      const n = { ...f };
+      if (n.x != null) n.x *= s;
+      if (n.z != null) n.z *= s;
+      if (n.r != null) n.r *= s;
+      if (n.len != null) n.len *= s;
+      if (n.w != null) n.w *= s;
+      if (n.gap != null) n.gap *= s;
+      return n;
+    })};
+    if (out.craters) {
+      out.craters = {
+        ...out.craters,
+        count: Math.round((out.craters.count || 0) * 1.6),
+        rMin: (out.craters.rMin || 10) * s * 0.85,
+        rMax: (out.craters.rMax || 30) * s * 0.85
+      };
+    }
+    if (out.props) {
+      out.props = { ...out.props, count: Math.round((out.props.count || 0) * 3.2) };
+    }
+    if (out.caches) out.caches = Math.round(out.caches * 1.8);
+    if (out.brokenRovers) out.brokenRovers = Math.round(out.brokenRovers * 1.5);
+    // Slightly stronger relief so the bigger map still has readable hills.
+    if (out.amp) out.amp = out.amp * 1.15;
+    return out;
+  }
+
+  /** Mid-scale ridges & boulder clusters that the heightfield alone can't sell. */
+  _buildDetailMeshes() {
+    const th = this.theme;
+    if (th.cloudDeck) return;
+    const rand = mulberry32(this.seedBase + 404);
+    const group = new THREE.Group();
+    // Long geological ridges
+    const ridgeMat = new THREE.MeshStandardMaterial({
+      color: th.high || 0x888888, roughness: 0.95, flatShading: true
+    });
+    const ridgeCount = this.quality === 'low' ? 10 : 22;
+    for (let i = 0; i < ridgeCount; i++) {
+      const x = (rand() - 0.5) * SIZE * 0.85;
+      const z = (rand() - 0.5) * SIZE * 0.85;
+      if (Math.hypot(x, z) < 80) continue;
+      const len = 40 + rand() * 120;
+      const h = 2 + rand() * 7;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(4 + rand() * 6, h, len), ridgeMat);
+      mesh.position.set(x, this.heightAt(x, z) + h * 0.35, z);
+      mesh.rotation.y = rand() * Math.PI;
+      mesh.rotation.z = (rand() - 0.5) * 0.15;
+      group.add(mesh);
+    }
+    // Scattered large boulders (non-streamed landmarks)
+    const rockMat = new THREE.MeshStandardMaterial({
+      color: th.props?.color || th.low || 0x666666, roughness: 0.97, flatShading: true
+    });
+    const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+    const rockN = this.quality === 'low' ? 18 : 40;
+    for (let i = 0; i < rockN; i++) {
+      const x = (rand() - 0.5) * SIZE * 0.8;
+      const z = (rand() - 0.5) * SIZE * 0.8;
+      if (Math.hypot(x, z) < 50) continue;
+      const sc = 3 + rand() * 8;
+      const m = new THREE.Mesh(rockGeo, rockMat);
+      m.position.set(x, this.heightAt(x, z) + sc * 0.35, z);
+      m.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+      m.scale.set(sc, sc * (0.6 + rand() * 0.6), sc * (0.7 + rand() * 0.5));
+      group.add(m);
+    }
+    this.scene.add(group);
+    this._detailGroup = group;
   }
 
   // ------------------------------------------------ TERRAIN
@@ -466,13 +551,15 @@ export class SurfaceScene {
     glow.position.copy(sunDir).multiplyScalar(2600);
     glow.scale.setScalar(sky.stars ? 900 : 340);
     this.scene.add(glow);
-    if (sky.fog) this.scene.fog = new THREE.FogExp2(sky.fog[0], sky.fog[1]);
+    // Fog density was tuned for a 900-unit map — halve it so the bigger
+    // world stays readable at range instead of disappearing into haze.
+    if (sky.fog) this.scene.fog = new THREE.FogExp2(sky.fog[0], sky.fog[1] * 0.55);
   }
 
   // ------------------------------------------------ ROCKS / PROPS
   /**
    * Scatter props (boulders, debris, ice shards…) through the STREAMER instead
-   * of instantiating the whole 900×900 map at once. Cells near the player are
+   * of instantiating the whole 1800×1800 map at once. Cells near the player are
    * generated on demand and everything the player walks away from is disposed,
    * so memory stays flat no matter how far you drive.
    */

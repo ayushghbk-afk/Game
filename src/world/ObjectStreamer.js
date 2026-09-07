@@ -1,7 +1,7 @@
 // ObjectStreamer — keeps a planet surface populated around the player without
 // keeping the WHOLE map in memory.
 //
-// The surface is 900×900 units of terrain. Building every rock, boulder field
+// The surface is 1800×1800 units of terrain. Building every rock, boulder field
 // and prop for all of it up front is what makes landing on a big world stutter
 // and eventually blow the GPU budget on phones. Instead the map is divided into
 // a grid of CELLS: cells inside the player's radius are GENERATED on demand,
@@ -15,9 +15,11 @@
 
 /** Budget presets exposed in Settings → Object streaming. */
 export const STREAM_BUDGETS = {
-  low: { cell: 90, radius: 2, maxCells: 26 },
-  medium: { cell: 75, radius: 3, maxCells: 60 },
-  high: { cell: 60, radius: 4, maxCells: 110 }
+  // Slightly larger cells + higher live-cell caps so the 1800-unit surface
+  // still feels dense without spiking frame time on mid-range GPUs.
+  low: { cell: 110, radius: 2, maxCells: 30 },
+  medium: { cell: 90, radius: 3, maxCells: 72 },
+  high: { cell: 75, radius: 4, maxCells: 130 }
 };
 
 export class ObjectStreamer {
