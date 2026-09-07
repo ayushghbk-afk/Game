@@ -21,7 +21,10 @@ export const ACHIEVEMENTS = [
   { id: 'planetfall', name: 'PLANETFALL', desc: 'Land on a planet and settle in at its outpost.' },
   { id: 'mechanic', name: 'ROVER MECHANIC', desc: 'Repair your first broken rover on the surface.' },
   { id: 'steward', name: 'STATION STEWARD', desc: 'Complete a maintenance routine on a planetary outpost.' },
-  { id: 'astronaut', name: 'FIELD ASTRONAUT', desc: 'Live, eat and work at a planetary outpost.' }
+  { id: 'astronaut', name: 'FIELD ASTRONAUT', desc: 'Live, eat and work at a planetary outpost.' },
+  { id: 'walker', name: 'FIRST STEPS', desc: 'Suit up and walk on a planet on foot.' },
+  { id: 'scavenger', name: 'SCAVENGER', desc: 'Recover 5 supply caches (spare parts) on planet surfaces.' },
+  { id: 'logistics', name: 'LOGISTICS CHAIN', desc: 'Receive your first supply delivery from Earth.' }
 ];
 
 const PLANET_IDS = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
@@ -39,7 +42,10 @@ export function freshState() {
     visited: [],         // bodies entered SOI of
     anomalies: [],       // anomaly ids found
     achievements: [],
-    stats: { orbits: 0, landings: 0, docks: 0, mined: 0, jumps: 0, scans: 0 },
+    supplyOrders: [],    // orders placed from Earth to a planetary outpost
+    collectedCaches: [], // "planetId:cacheIndex" — caches already recovered (no re-farming)
+    stats: { orbits: 0, landings: 0, docks: 0, mined: 0, jumps: 0, scans: 0,
+             repairs: 0, caches: 0, deliveries: 0, evas: 0 },
     settings: { ...DEFAULT_SETTINGS },
     ship: null,          // filled by Game on save
     playTime: 0

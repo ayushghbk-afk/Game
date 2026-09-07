@@ -40,25 +40,99 @@ enter orbit (`E`) → scan (`R`) → complete FIRST FLIGHT & LUNAR VISIT → sav
 
 ### The Land System
 
-When you orbit a **landable** body (Earth, Moon, Mars) press **`L`** to touch
-down. The surface is procedural terrain; you pilot a hover-shuttle and a
-drivable **rover**.
+When you orbit **any of the 18 bodies** (all 8 planets + 10 moons) press
+**`L`** to touch down — the only gate is that you **scanned it first**
+(`R` in orbit). Gas/ice giants get a hard **cloud deck** you can walk on.
+Every world gets its **own named surface map** built from real planetary
+science (see [Surface maps & research sources](#surface-maps--research-sources)),
+so Mars has Valles Marineris, Olympus Mons and dune fields, Europa has
+lineae and chaos terrain, Titan has methane seas and longitudinal dunes,
+and so on. You pilot a hover-shuttle, a drivable **rover** — and you can
+**step out of both and walk in your EVA suit**.
 
 - **Outpost (your planetary base).** Land near it and press **`E`** to enter:
   **REST** (restore energy), **EAT** (recover satiety from food rations),
-  **MAINTAIN STATION** (a paid job that uses a spare part), and **DRIVE /
-  PARK ROVER**.
+  **MAINTAIN STATION** (a paid job that uses a spare part), **DRIVE / PARK
+  ROVER**, **EVA (ON FOOT)**, plus the **SUPPLY LINE — ORDER FROM EARTH**
+  panel and a **FIELD JOBS** report (broken rovers + caches still out there).
 - **Rover.** Board it with `E` and drive with **W/A/S/D** over the terrain to
   explore and reach field objectives.
-- **Broken rovers.** Scattered on every world. Drive up to one and press
-  **`E`** to repair it (takes a few seconds, costs 1 spare part) — pays
-  **credits + XP** per rover fixed.
+- **EVA — on foot.** Step out of the shuttle (landed) or the rover (stopped):
+  a full **humanoid astronaut** with a third-person camera. **WASD run,
+  SHIFT sprint, SPACE jump** (jump height & hang time scale with the world's
+  gravity — try it on Phobos), mouse to look. Find **supply caches** on foot
+  and walk back to your vehicles to re-board (`E`).
+- **Supply caches (spare parts in the wild).** Crates of **spare parts** (and
+  occasional food/water/ice/rare extras) are scattered randomly across every
+  world's surface — drive or walk over one and press **`E`** to recover it.
+  Recovering 5 earns the **SCAVENGER** achievement.
+- **Earth supply line.** At the outpost you can **order spare parts, food,
+  water, ice and rare isotopes straight from Earth**. Price and ETA scale
+  with the body's distance from Earth (Mercury is cheap & fast; Neptune is
+  not). The order travels on game time — crank the **time warp** and watch
+  the countdown in the panel. When it lands, a crate appears near the
+  outpost: walk/drive over it, press `E`, load it into cargo. First delivery
+  loaded earns the **LOGISTICS CHAIN** achievement.
+- **Broken rovers.** Scattered on every solid world. Drive up to one and
+  press **`E`** to repair it (takes a few seconds, costs 1 spare part) —
+  pays **credits + XP** per rover fixed.
+- **Sample site.** Every world has a science sample site (a beacon you can
+  find by exploring); collect it for a world-specific resource reward + XP.
 - **Food / satiety.** Your astronaut gets hungry over time (the FOOD bar
   drains). Eat rations at the outpost to recover; buy more food & spare parts
-  at any space station. Running out of food slows your energy — keep stocked.
+  at any space station, find them in caches, or order them from Earth.
+  Running out of food slows your energy — keep stocked.
+
+**The UI changes with the vehicle.** The HUD shows a mode chip
+(🚀 SHIP / 🛬 SHUTTLE / 🚙 ROVER / 🚶 ASTRONAUT) and the right bars per
+context — fuel & shield in the ship, the rover cell + cargo on the rover,
+O₂/vitals + cargo on foot — and the mobile touch layout swaps its buttons
+too (JUMP appears only on foot, EVA/SHUTTLE only on the surface, BOOST
+doubles as rover nitro).
 
 Your new career starts with a small kit of **6 food rations** and **3 spare
 parts** so you can settle in at your first outpost immediately.
+
+### Surface maps & research sources
+
+Each `SurfaceScene` picks its **theme from `src/surface/SurfaceThemes.js`**
+(18 hand-tuned maps: noise amplitude, named features, palette, sky, rewards).
+Feature placement follows published planetary science:
+
+- **Mercury** — Borealis Planitia, Caloris basin (peak ring + radial
+  troughs), Nathair facula, contraction wrinkle ridges, permanently
+  shadowed polar ice (BepiColombo 2024–25 flybys).
+- **Venus** — Maat Mons in Atla Regio, tessera highlands, coronae,
+  chasmata, young crater-free lava plains (Magellan + 2023 Maat Mons
+  reanalysis).
+- **Mars** — Valles Marineris, Tharsis / Olympus Mons, Hellas basin,
+  Jezero delta, barchan dune fields (Frontiers 2022 dune survey).
+- **Moon / Phobos / Deimos** — maria, Tycho ray system; potato-shaped
+  low-gravity terrain.
+- **Io** — Pele, Tvashtar, Kanehekili, Loki Patera, red sulfur sinter
+  (Juno 2023–25).
+- **Europa** — lineae double ridges, chaos terrain blocks, plume stains,
+  domes (Galileo reprocessing + Juno 2022).
+- **Ganymede / Callisto** — two-toned grooved terrain, Utopia Planitia,
+  Haworth craters, Styx palimpsest (Juno 2021 flyover).
+- **Titan** — Kraken / Ligeia / Punga maria, equatorial longitudinal dune
+  fields, dendritic channels (Cassini / Huygens).
+- **Enceladus** — the four tiger-stripe fractures (Damascus/Baghdad/Cairo/
+  Mumbai Sulci), jet spots, crystalline south polar ice.
+- **Triton / Uranus / Neptune** — nitrogen-ice plains, cantaloupe terrain,
+  cloud decks.
+
+<details><summary>Selected sources (2021–2025)</summary>
+
+- ESA / BepiColombo Mercury flyby coverage (Dec 2024 – Jan 2025)
+- space.com / EarthSky: Borealis Planitia, Caloris, Nathair facula
+- NASA JPL: Juno Europa flyby reprocessed Galileo data; Juno 2023–25 Io
+  hotspots; Cassini/Huygens Titan sea & dune maps
+- Frontiers in Astronomy & Space Sciences (2022): Martian dune-field survey
+- APOD / Juno: Ganymede & Callisto flyover (Dec 2025 imagery); Maat Mons
+  radar reanalysis (2023); Enceladus tiger-stripe Cassini radar maps
+
+</details>
 
 ---
 
@@ -68,11 +142,11 @@ parts** so you can settle in at your first outpost immediately.
 |---|---|
 | **Solar System** | Sun (animated shader) + all 8 planets + 10 moons (Moon, Phobos, Deimos, Io, Europa, Ganymede, Callisto, Titan, Enceladus, Triton), rings for Saturn/Uranus, axial tilts, Kepler-relative orbital speeds |
 | **Flight** | 6-DOF ship: thrust, reverse, strafe, vertical, roll, boost, brake, smooth acceleration, momentum, clamped inverse-square gravity, gravity assists, planet collision + shields/hull damage |
-| **Interaction** | Targeting, planet orbit mode, landing on **Earth/Moon/Mars** (procedural terrain, local gravity, landing, sample collection), a planetary **outpost** (live · eat · maintain · rover), repair broken rovers, scanner with discovery flow, asteroid mining |
-| **Economy** | 7 resources (incl. Food rations & Spare Parts), cargo capacity, space stations (Earth/Mars/Jupiter/Saturn) with refuel · repair · trade · upgrades, plus outpost jobs that pay credits |
-| **Progression** | Credits, XP/levels, 5 upgrade systems × 2–3 tiers (Engine, Tank, Shield, Scanner, Cargo), 10-mission chain, 16 achievements |
-| **Exploration** | Procedural asteroid belt (instanced, pooled, minable), 3 hidden anomalies, drivable surface **rover** + scattered broken rovers to find and repair, codex encyclopedia that unlocks as you scan |
-| **UI** | Loading screen, animated main menu, HUD (bars/target/prompt/warnings), solar system chart (click to inspect + fast travel), planet info cards, dock panel, settings, help |
+| **Interaction** | Targeting, planet orbit mode, landing on **all 18 bodies after scanning** (named research-themed terrain per world, local gravity, cloud decks for gas/ice giants, sample sites), a planetary **outpost** (live · eat · maintain · rover · EVA · Earth supply line), repair broken rovers, scanner with discovery flow, asteroid mining |
+| **Economy** | 7 resources (incl. Food rations & Spare Parts), cargo capacity, space stations (Earth/Mars/Jupiter/Saturn) with refuel · repair · trade · upgrades, **supply line from Earth** (cost & ETA scale with distance, time-warp-able transit), plus outpost jobs that pay credits |
+| **Progression** | Credits, XP/levels, 5 upgrade systems × 2–3 tiers (Engine, Tank, Shield, Scanner, Cargo), 10-mission chain, 19 achievements |
+| **Exploration** | Procedural asteroid belt (instanced, pooled, minable), 3 hidden anomalies, **18 unique surface maps** (Mars canyons & dunes, Europa lineae & chaos terrain, Titan seas, Io volcanoes…), drivable surface **rover** + **humanoid EVA (run/sprint/jump, gravity-scaled)**, random **supply caches** of spare parts, scattered broken rovers to repair, per-world science sample sites, codex encyclopedia that unlocks as you scan |
+| **UI** | Loading screen, animated main menu, **vehicle-aware HUD** (mode chip + per-vehicle bars: ship/shuttle/rover/astronaut), mobile touch layout that **re-skins per vehicle** (JUMP/EVA buttons), solar system chart (click to inspect + fast travel), planet info cards, dock + outpost panels, settings, help |
 | **Fast travel** | Discovered destinations can be warped to for fuel + a few seconds of travel |
 | **Time** | Accelerated sim clock (1 real s = 1 game min), 1×/10×/100× warp — orbits use the same clock |
 | **Audio** | Fully synthesized WebAudio: engine hum, boost, scanner, mining laser, mission chimes, alarms + generative ambient music. No audio files. |
@@ -82,7 +156,7 @@ parts** so you can settle in at your first outpost immediately.
 
 **Zero binary assets.** Every texture (planet surfaces, Earth day/night + city
 lights + clouds, gas-giant bands, rings, glows, nebulae) is painted procedurally
-on canvases at load time — that's why the whole game is ~174 KB gzipped and
+on canvases at load time — that's why the whole game is ~195 KB gzipped and
 loads in seconds on a phone.
 
 ---
@@ -101,8 +175,8 @@ Tests:
 ```bash
 npm test                  # runs all of the following
 
-node test/smoke.mjs         # world/physics/economy/missions/save — 44 checks
-node test/ui-smoke.mjs      # UI modules under jsdom — 25 checks
+node test/smoke.mjs         # world/physics/economy/surfaces/EVA/supply — 51 checks
+node test/ui-smoke.mjs      # UI modules under jsdom — 29 checks
 node test/static-host.mjs   # unbundled boot path (plain static host / CDN three)
 node test/css-input-layers.mjs # pointer-events layering (invisible-overlay guard)
 node test/modal-state.mjs   # modal bookkeeping / ESC-close regression (jsdom)
@@ -150,7 +224,10 @@ The Vite build uses a **relative base (`./`)**, so it works from
     │   ├── Game.js              # orchestrator: modes, loop, cameras, interactions
     │   ├── GameState.js         # progress + events + achievements
     │   ├── TimeSystem.js        # accelerated sim clock
-    │   └── SurfaceScene.js      # procedural planet surfaces (landing)
+    │   └── SurfaceScene.js      # planetary surfaces: terrain, vehicles, EVA,
+    │                            #   caches, deliveries, sample sites
+    ├── surface/
+    │   └── SurfaceThemes.js     # 18 research-based surface maps (per world)
     ├── planets/
     │   ├── SolarSystem.js       # sun shader, bodies, stations, orbit lines
     │   ├── Planet.js / Moon.js  # LOD meshes, atmospheres, rings, spin/orbits
@@ -167,7 +244,8 @@ The Vite build uses a **relative base (`./`)**, so it works from
     ├── audio/AudioManager.js    # synthesized SFX + generative music
     ├── save/SaveSystem.js       # localStorage
     └── ui/                      # HUD, Menu, Map, PlanetInfo, MobileControls,
-                                 #   Codex, DockPanel, Toasts, LoadingScreen
+                                 #   Codex, DockPanel, BasePanel, Toasts,
+                                 #   LoadingScreen
 ```
 
 ## PERFORMANCE NOTES

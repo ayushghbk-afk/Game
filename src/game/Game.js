@@ -170,17 +170,21 @@ export class Game {
       sound: (k) => this.audio[k === 'click' ? 'click' : 'levelUp']?.()
     });
 
-    // Planetary outpost — live, eat, maintain and manage the rover.
+    // Planetary outpost — live, eat, maintain, rover, EVA + supply line.
     this.basePanel = new BasePanel(this.root, {
       gs: this.gs,
       onRest: () => this._restAtBase(),
       onEat: () => this._eatAtBase(),
       onMaintain: () => this._maintainBase(),
       onRover: () => this._toggleRover(),
+      onEva: () => this._toggleFoot(),
       onLeave: () => this.closeModal(),
       sound: (k) => this.audio[k === 'click' ? 'click' : 'levelUp']?.(),
       brokenRovers: () => (this.surface?.brokenRovers || []),
-      maintainCooldownRemaining: () => Math.max(0, this._maintainReady - this.time.simSeconds)
+      maintainCooldownRemaining: () => Math.max(0, this._maintainReady - this.time.simSeconds),
+      getOrders: () => this._surfaceOrders(),
+      supplyQuote: (id, qty) => this._supplyQuote(id, qty),
+      orderItem: (id, qty) => this._orderSupply(id, qty)
     });
 
     this.touchCapable = isTouchDevice();
@@ -191,6 +195,7 @@ export class Game {
       map: () => this.toggleMap(),
       target: () => this.cycleTarget(),
       land: () => this.tryLand(),
+      eva: () => this._toggleFoot(),
       missions: () => this.toggleModal('missions'),
       codex: () => this.toggleModal('codex'),
       pause: () => {
@@ -502,6 +507,13 @@ export class Game {
         this.controller.tryRequestPointerLock();
       }
     }
+    this._syncMobileMode();
+  }
+
+  /** Re-skin the touch layout for the current vehicle (ship/shuttle/rover/foot). */
+  _syncMobileMode() {
+    if (!this.mobile) return;
+    this.mobile.setMode(this.mode === 'surface' ? (this.surface?.vehicleMode || 'shuttle') : 'space');
   }
 
   /** Hide already-collected anomalies after a reload. */
@@ -766,6 +778,9 @@ export class Game {
     else if (this.shipState.shield <= 0 && this._now() - (this._lastHit || 0) < 4) warn = '⚠ SHIELDS DOWN';
     this.audio.setWarning(!!warn && !this.modalOpen);
 
+    // Earth supply orders coming due while we're in space
+    this._checkSupplyOrders();
+
     // HUD
     this._updateHUD(warn);
   }
@@ -894,10 +909,10 @@ export class Game {
     return best;
   }
 
-  // ---- surface (outpost / rover / repairs) ----
+  // ---- surface (outpost / rover / EVA / repairs / supplies) ----
   _surfacePos() {
     const s = this.surface;
-    const p = s.vehicleMode === 'rover' ? s.roverState.position : s.shipState.position;
+    const p = s.playerPos();
     return { x: p.x, z: p.z };
   }
 
@@ -905,26 +920,154 @@ export class Game {
     this.syncModalState();
     if (this.mode !== 'surface' || this.modalOpen || this.paused) return;
     const surf = this.surface;
-    const pos = this._surfacePos();
+    const pos = surf.playerPos();
+    const x = pos.x, z = pos.z;
+    const onFoot = surf.vehicleMode === 'foot';
+    const range = onFoot ? 7 : 16; // pick-up radius by vehicle
     // 1) enter the outpost
-    if (surf.baseDistance(pos.x, pos.z) < surf.baseRadius) { this._openBase(); return; }
+    if (surf.baseDistance(x, z) < surf.baseRadius) { this._openBase(); return; }
     // 2) don't re-trigger a repair in progress
     if (this.repairJob) return;
     // 3) repair a nearby broken rover
-    const br = surf.nearestBrokenRover(pos.x, pos.z);
+    const br = surf.nearestBrokenRover(x, z);
     if (br) { this._startRepair(br.i); return; }
-    // 4) board / park the rover
-    if (surf.vehicleMode === 'rover') {
-      if (surf.shuttleDistance(pos.x, pos.z) < SHUTTLE_RANGE) {
-        surf.enterShuttle();
-        this.toasts.show('ROVER', 'Rover parked. Back in the landing shuttle.', 'info', 2200);
-      } else {
-        this.toasts.show('ROVER', 'Drive back to the shuttle / outpost to board it.', 'warn', 2400);
-      }
-    } else if (surf.roverDistance(pos.x, pos.z) < SHUTTLE_RANGE) {
-      surf.enterRover();
-      this.toasts.show('ROVER', 'Boarded the rover — drive out and find broken rovers to repair.', 'info', 3500);
+    // 4) recover a supply cache (spare parts found on the map)
+    const cache = surf.nearestCache(x, z, range);
+    if (cache) { this._takeCache(cache.i); return; }
+    // 5) load an Earth supply delivery crate
+    const deliv = surf.nearestDelivery(x, z, range);
+    if (deliv) { this._takeDelivery(deliv.i); return; }
+    // 6) collect the world's science sample at the sample site
+    if (!surf.sampleSite.collected && surf.sampleDistance(x, z) < surf.sampleSite.radius) {
+      this._collectSamples(); return;
     }
+    // 7) vehicle transitions
+    if (surf.vehicleMode === 'rover') {
+      if (surf.shuttleDistance(x, z) < SHUTTLE_RANGE) {
+        surf.enterShuttle(pos);
+        this.toasts.show('ROVER', 'Rover parked. Back in the landing shuttle.', 'info', 2200);
+      } else if (Math.abs(surf.roverState.speed) < 1.5) {
+        this._stepOutFoot();
+      } else {
+        this.toasts.show('EVA', 'Stop the rover to step out — or return to the shuttle.', 'warn', 2400);
+      }
+    } else if (surf.vehicleMode === 'shuttle') {
+      if (surf.roverDistance(x, z) < SHUTTLE_RANGE) {
+        surf.enterRover(pos);
+        this.toasts.show('ROVER', 'Boarded the rover — drive out, find broken rovers and supply caches.', 'info', 3500);
+      } else if (surf.landed) {
+        this._stepOutFoot();
+      }
+    } else { // on foot
+      if (surf.roverDistance(x, z) < SHUTTLE_RANGE * 0.6) {
+        surf.enterRover(pos);
+        this.toasts.show('ROVER', 'Boarded the rover.', 'info', 2000);
+      } else if (surf.shuttleDistance(x, z) < SHUTTLE_RANGE * 0.6) {
+        surf.enterShuttle(pos);
+        this.toasts.show('SHUTTLE', 'Re-boarded the landing shuttle.', 'info', 2000);
+      }
+    }
+    this._syncMobileMode();
+  }
+
+  /** Step out of the current vehicle on foot (EVA). */
+  _stepOutFoot() {
+    const surf = this.surface;
+    if (surf.vehicleMode === 'shuttle' && !surf.landed) {
+      this.toasts.show('EVA', 'Land the shuttle first (touch down gently), then step out.', 'warn', 2600);
+      this.audio.error();
+      return;
+    }
+    if (surf.vehicleMode === 'rover' && Math.abs(surf.roverState.speed) > 1.5) {
+      this.toasts.show('EVA', 'Stop the rover before stepping out.', 'warn', 2200);
+      this.audio.error();
+      return;
+    }
+    surf.enterFoot(surf.playerPos());
+    this.gs.state.stats.evas = (this.gs.state.stats.evas || 0) + 1;
+    this.gs.award('walker');
+    this.toasts.show('EVA — ON FOOT', 'Suit up! Run WASD · Sprint SHIFT · JUMP SPACE · look with the mouse.', 'info', 5000);
+    this._syncMobileMode();
+  }
+
+  /** EVA toggle used by the outpost panel + the mobile EVA button. */
+  _toggleFoot() {
+    const surf = this.surface;
+    if (!surf || this.mode !== 'surface') return;
+    const pos = surf.playerPos();
+    if (surf.vehicleMode === 'foot') {
+      if (surf.shuttleDistance(pos.x, pos.z) < SHUTTLE_RANGE + 8) {
+        surf.enterShuttle(pos);
+        this.toasts.show('SHUTTLE', 'Re-boarded the landing shuttle.', 'info', 2200);
+      } else if (surf.roverDistance(pos.x, pos.z) < SHUTTLE_RANGE + 8) {
+        surf.enterRover(pos);
+        this.toasts.show('ROVER', 'Boarded the rover.', 'info', 2200);
+      } else {
+        this.toasts.show('EVA', 'Walk back near your shuttle or rover to board it.', 'warn', 2600);
+        this.audio.error();
+      }
+    } else {
+      this._stepOutFoot();
+    }
+    this._syncMobileMode();
+  }
+
+  /** Recover a supply cache: spare parts + bonuses straight into cargo. */
+  _takeCache(i) {
+    const surf = this.surface;
+    const logKey = `${surf.id}:${i}`;
+    if (this.gs.state.collectedCaches.includes(logKey)) return;
+    const payload = surf.takeCache(i);
+    if (!payload) return;
+    this.gs.state.collectedCaches.push(logKey);
+    const stats = shipStats(this.gs.state.upgrades);
+    const bits = [];
+    for (const k in payload) {
+      const got = this.gs.addCargo(k, payload[k], stats.cargoCapacity);
+      bits.push(`${ECON_LABEL(k)} ×${Math.round(got)}`);
+    }
+    this.gs.state.stats.caches = (this.gs.state.stats.caches || 0) + 1;
+    this.gs.addXP(60);
+    this.toasts.show('SUPPLY CACHE RECOVERED', `${bits.join(', ')} · +60 XP — sell at a station for credits.`, 'success', 4200);
+    this.audio.missionComplete();
+    this._checkAchievements();
+    this.gs.save(this.shipSnapshot());
+  }
+
+  /** Load an Earth delivery crate into cargo. */
+  _takeDelivery(i) {
+    const surf = this.surface;
+    const order = surf.takeDelivery(i);
+    if (!order) return;
+    const stats = shipStats(this.gs.state.upgrades);
+    const got = this.gs.addCargo(order.item, order.qty, stats.cargoCapacity);
+    const stored = this.gs.state.supplyOrders.find(o => o.id === order.id);
+    if (stored) stored.taken = true;
+    this.gs.state.stats.deliveries = (this.gs.state.stats.deliveries || 0) + 1;
+    this.gs.addXP(40);
+    this.toasts.show('DELIVERY LOADED', `+${Math.round(got)} ${ECON_LABEL(order.item)} from Earth · +40 XP`, 'success', 4200);
+    this.audio.missionComplete();
+    this._checkAchievements();
+    this.gs.save(this.shipSnapshot());
+  }
+
+  /** Collect this world's science sample (once per landing session). */
+  _collectSamples() {
+    const surf = this.surface;
+    if (surf.collected) return;
+    surf.collected = true;
+    surf.sampleSite.collected = true;
+    const stats = shipStats(this.gs.state.upgrades);
+    const rewards = surf.collectRewards();
+    const bits = [];
+    for (const k in rewards) {
+      const got = this.gs.addCargo(k, rewards[k], stats.cargoCapacity);
+      bits.push(`${ECON_LABEL(k)} ×${Math.round(got)}`);
+    }
+    this.gs.addXP(150);
+    this.toasts.show('SAMPLES COLLECTED', bits.join(', ') + ' · +150 XP', 'discovery', 5000);
+    this.audio.missionComplete();
+    this.gs.save(this.shipSnapshot());
   }
 
   _openBase() {
@@ -1032,12 +1175,20 @@ export class Game {
   _toggleRover() {
     const surf = this.surface;
     if (surf.vehicleMode === 'rover') {
-      surf.enterShuttle();
+      surf.enterShuttle(surf.playerPos());
       this.toasts.show('ROVER', 'Rover parked. Back in the landing shuttle.', 'info', 2400);
+    } else if (surf.vehicleMode === 'foot') {
+      if (surf.roverDistance(surf.playerPos().x, surf.playerPos().z) < SHUTTLE_RANGE + 8) {
+        surf.enterRover(surf.playerPos());
+        this.toasts.show('ROVER', 'Boarded the rover.', 'info', 2400);
+      } else {
+        this.toasts.show('ROVER', 'Walk back near the rover to board it.', 'warn', 2600);
+      }
     } else {
-      surf.enterRover();
+      surf.enterRover(surf.playerPos());
       this.toasts.show('ROVER', 'Boarded the rover — drive out and find broken rovers to repair.', 'info', 3400);
     }
+    this._syncMobileMode();
   }
 
   _collectAnomaly(an) {
@@ -1167,6 +1318,9 @@ export class Game {
     if (this.gs.state.stats.landings >= 1) this.gs.award('tourist');
     if (this.gs.state.stats.landings >= 1) this.gs.award('planetfall');
     if ((this.gs.state.stats.repairs || 0) >= 1) this.gs.award('mechanic');
+    if ((this.gs.state.stats.caches || 0) >= 5) this.gs.award('scavenger');
+    if ((this.gs.state.stats.deliveries || 0) >= 1) this.gs.award('logistics');
+    if ((this.gs.state.stats.evas || 0) >= 1) this.gs.award('walker');
   }
 
   // ---- targeting ----
@@ -1224,10 +1378,18 @@ export class Game {
   }
 
   // ---- landing ----
+  // Any planet or moon is landable — but only after you have SCANNED it
+  // (target T → scan R). Gas/ice giants give you a cloud-deck surface.
   tryLand() {
     if (this.mode === 'surface') return;
     if (!this.orbiting) { this.toasts.show('LANDING', 'Enter orbit first (get close, press E).', 'warn'); this.audio.error(); return; }
-    if (!this.orbiting.cfg.landable) { this.toasts.show('LANDING', `No landing modules for ${this.orbiting.name}.`, 'warn'); this.audio.error(); return; }
+    const cfg = this.orbiting.cfg;
+    const scanned = this.gs.state.discoveries.includes(cfg.id);
+    if (!scanned) {
+      this.toasts.show('LANDING', `${cfg.name} is unscanned — scan it first (T target, R scan) to unlock the surface.`, 'warn', 3600);
+      this.audio.error();
+      return;
+    }
     this._startLanding(this.orbiting);
   }
 
@@ -1242,10 +1404,23 @@ export class Game {
         this.mode = 'surface';
         this.orbiting = null;
         this.repairJob = null;
+        // restore world state that outlives a single visit:
+        // delivered-but-unloaded Earth crates + already-recovered caches
+        for (const o of this.gs.state.supplyOrders) {
+          if (o.planet === body.id && o.delivered && !o.taken) this.surface.addDelivery(o);
+        }
+        for (const key of this.gs.state.collectedCaches) {
+          const [pid, idx] = key.split(':');
+          if (pid === body.id) this.surface.takeCache(parseInt(idx, 10));
+        }
         this.hud.show();
-        this.toasts.show('PLANETFALL', `Descending to ${body.name} — land near the outpost, board the rover (E) and explore.`, 'info', 6000);
+        const cloud = this.surface.theme?.cloudDeck;
+        this.toasts.show('PLANETFALL', cloud
+          ? `Descending through the cloud layer — touching down on the ${body.name} CLOUD DECK. Rover, EVA (E) and supply caches await.`
+          : `Touchdown on ${body.name} — land near the outpost, board the rover (E), or step out on foot (EVA) and hunt supply caches.`, 'info', 6500);
         this.gs.state.stats.landings++;
         this.gs.award('planetfall');
+        this._syncMobileMode();
       } catch (e) {
         console.error('landing failed', e);
         this.toasts.show('LANDING FAILED', 'Surface module error — staying in orbit.', 'warn');
@@ -1279,7 +1454,8 @@ export class Game {
     const onLeave = () => this._returnToOrbit();
     surf.update(dt, input, this.camera, { fuelAvailable: hasFuel, onCrash, onLeave });
 
-    // fuel burn while the shuttle thrusts
+    // fuel burn while the shuttle thrusts (shuttle only — rover runs on its
+    // cell, the astronaut on O₂; both covered by the ENERGY bar)
     const thrusting = input.throttleF !== 0 || input.vert > 0;
     if (surf.vehicleMode === 'shuttle' && thrusting) this.shipState.fuel = Math.max(0, this.shipState.fuel - 1.4 * dt / stats.efficiency);
     this.audio.setEngine(surf.vehicleMode === 'shuttle' && thrusting ? Math.min(1, Math.abs(input.throttleF) + Math.max(0, input.vert)) : 0, false);
@@ -1287,28 +1463,93 @@ export class Game {
     // rover repair job progress
     this._updateRepairJob(dt);
 
+    // Earth supply orders that come due while we're on this world land crates
+    this._checkSupplyOrders();
+
+    // live supply-line countdown in the outpost panel
+    this.basePanel?.tick?.(performance.now());
+
     this._updateHUDSurface();
     this.missions?.update(this.missions.makeContext(this));
     this._checkAchievements();
+  }
 
-    // collect samples (E) — only when landed in the shuttle and nothing else is going on
-    const holdE = this.controller.enabled &&
-      (this.controller.keys.has('KeyE') || this.controller.touch.interactHeld);
-    if (this.surface.landed && holdE && !this.surface.collected && !this._collectLatch && !this.repairJob) {
-      this._collectLatch = true;
-      this.surface.collected = true;
-      const rewards = this.surface.collectRewards();
-      const bits = [];
-      for (const k in rewards) {
-        const got = this.gs.addCargo(k, rewards[k], stats.cargoCapacity);
-        bits.push(`${ECON_LABEL(k)} ×${Math.round(got)}`);
-      }
-      this.gs.addXP(150);
-      this.toasts.show('SAMPLES COLLECTED', bits.join(', ') + ' · +150 XP', 'discovery', 5000);
-      this.audio.missionComplete();
-      this.gs.save(this.shipSnapshot());
+  // ---- SUPPLY LINE: order from Earth ----
+  /** Distance factor of the current outpost from Earth (0 on Earth). */
+  _distFactor(bodyCfg) {
+    const parent = bodyCfg?.parent ? PLANETS.find(p => p.id === bodyCfg.parent) : bodyCfg;
+    const orbit = parent?.orbitRadius || 160;
+    return clamp(Math.abs(orbit - 160) / 300, 0, 2.6);
+  }
+
+  _supplyQuote(itemId, qty) {
+    if (!this.surface) return null;
+    const sl = ECONOMY.surface.supplyLine;
+    const base = ECONOMY.resources[itemId]?.price || 0;
+    const df = this._distFactor(this.surface.cfg);
+    const cost = Math.ceil(base * qty * (1 + sl.costPerDist * df));
+    const eta = sl.baseEtaGameSec + sl.etaPerDist * df; // game-seconds
+    const etaText = `${Math.floor(eta / 60)}m ${Math.round(eta % 60)}s`;
+    return { cost, eta, etaText };
+  }
+
+  _orderSupply(itemId, qty) {
+    if (this.mode !== 'surface' || !this.surface) return;
+    const q = this._supplyQuote(itemId, qty);
+    if (!q) return;
+    if (!this.gs.spend(q.cost)) {
+      this.toasts.show('SUPPLY LINE', 'Not enough credits for that order.', 'warn', 2600);
+      this.audio.error();
+      return;
     }
-    if (!holdE) this._collectLatch = false;
+    const o = {
+      id: 'o' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36),
+      planet: this.surface.id,
+      item: itemId,
+      qty,
+      cost: q.cost,
+      placedAt: this.time.simSeconds,
+      dueAt: this.time.simSeconds + q.eta,
+      delivered: false,
+      taken: false,
+      notified: false
+    };
+    this.gs.state.supplyOrders.push(o);
+    this.toasts.show('ORDER FROM EARTH', `${ECON_LABEL(itemId)} ×${qty} en route to ${this.surface.cfg.name} — ETA ${q.etaText} (game time, warp-able).`, 'success', 5200);
+    this.audio.levelUp?.();
+    this.gs.save(this.shipSnapshot());
+  }
+
+  /** Orders for the outpost the player is currently on (panel view). */
+  _surfaceOrders() {
+    if (!this.surface) return [];
+    const now = this.time.simSeconds;
+    return this.gs.state.supplyOrders
+      .filter(o => o.planet === this.surface.id && !o.taken)
+      .map(o => ({ ...o, now }));
+  }
+
+  /** Land due delivery crates (surface) or announce arrivals (space). */
+  _checkSupplyOrders() {
+    const orders = this.gs.state.supplyOrders;
+    if (!orders.length) return;
+    const now = this.time.simSeconds;
+    for (const o of orders) {
+      if (o.taken || o.delivered || now < o.dueAt) continue;
+      const body = this.solar?.getBody(o.planet);
+      const bodyName = body?.name || o.planet.toUpperCase();
+      if (this.mode === 'surface' && this.surface && this.surface.id === o.planet) {
+        this.surface.addDelivery(o);
+        o.delivered = true;
+        this.toasts.show('DELIVERY FROM EARTH', `${ECON_LABEL(o.item)} ×${o.qty} crate landed near the ${bodyName} outpost — walk/drive over it and press E to load.`, 'success', 5600);
+        this.audio.arrival();
+        this.gs.save(this.shipSnapshot());
+      } else if (!o.notified) {
+        o.notified = true;
+        this.toasts.show('DELIVERY IN TRANSIT', `Your Earth order has arrived at ${bodyName} — land there to collect the crate.`, 'info', 5200);
+        this.gs.save(this.shipSnapshot());
+      }
+    }
   }
 
   _returnToOrbit() {
@@ -1319,6 +1560,7 @@ export class Game {
       this.repairJob = null;
       this._disposeSurface();
       this.mode = 'space';
+      this._syncMobileMode();
       // reappear in a clean orbit around the planet
       const r = body.radius * 3.2;
       this.shipState.position.copy(body.group.position).add(new THREE.Vector3(r, 0, 0));
@@ -1379,7 +1621,7 @@ export class Game {
     }
   }
   _shipDestroyed() {
-    if (this.mode === 'surface') { this._disposeSurface(); this.mode = 'space'; }
+    if (this.mode === 'surface') { this._disposeSurface(); this.mode = 'space'; this._syncMobileMode(); }
     this.effects.explosion(this.shipState.position, 2.2);
     this.audio.explosion?.();
     this.toasts.show('SHIP DESTROYED', 'Emergency beacon triggered…', 'warn', 5000);
@@ -1572,17 +1814,31 @@ export class Game {
       const s = this.surface;
       if (this.repairJob) return 'REPAIRING…';
       const pos = this._surfacePos();
+      const range = s.vehicleMode === 'foot' ? 7 : 16;
       if (s.baseDistance(pos.x, pos.z) < s.baseRadius) return 'E — ENTER OUTPOST';
-      const br = s.nearestBrokenRover(pos.x, pos.z);
-      if (br) return 'E — REPAIR ROVER';
-      if (s.vehicleMode === 'rover' && s.shuttleDistance(pos.x, pos.z) < SHUTTLE_RANGE) return 'E — BOARD SHUTTLE';
-      if (s.vehicleMode === 'shuttle' && s.roverDistance(pos.x, pos.z) < SHUTTLE_RANGE) return 'E — BOARD ROVER';
-      if (s.landed && !s.collected) return 'E — COLLECT SAMPLES';
-      return '';
+      if (s.nearestBrokenRover(pos.x, pos.z)) return 'E — REPAIR ROVER (1 PART)';
+      if (s.nearestCache(pos.x, pos.z, range)) return 'E — TAKE SUPPLY CACHE';
+      if (s.nearestDelivery(pos.x, pos.z, range)) return 'E — LOAD EARTH DELIVERY';
+      if (!s.sampleSite.collected && s.sampleDistance(pos.x, pos.z) < s.sampleSite.radius) return 'E — COLLECT SAMPLES';
+      if (s.vehicleMode === 'rover') {
+        if (s.shuttleDistance(pos.x, pos.z) < SHUTTLE_RANGE) return 'E — BOARD SHUTTLE';
+        if (Math.abs(s.roverState.speed) < 1.5) return 'E — EVA (ON FOOT)';
+        return 'STOP TO EVA — W drive · A/D steer · B brake';
+      }
+      if (s.vehicleMode === 'shuttle') {
+        if (s.roverDistance(pos.x, pos.z) < SHUTTLE_RANGE) return 'E — BOARD ROVER';
+        if (s.landed) return 'E — EVA (ON FOOT)  ·  W/S fly · SPACE up · climb >160 to return to orbit';
+        return 'W/S fly · SPACE ascend · land near the outpost';
+      }
+      // on foot
+      if (s.roverDistance(pos.x, pos.z) < SHUTTLE_RANGE * 0.6) return 'E — BOARD ROVER';
+      if (s.shuttleDistance(pos.x, pos.z) < SHUTTLE_RANGE * 0.6) return 'E — BOARD SHUTTLE';
+      return 'WASD run · SHIFT sprint · SPACE jump · E interact';
     }
     if (this.orbiting) {
       let p = 'E — LEAVE ORBIT';
-      if (this.orbiting.cfg.landable) p += '  ·  L — LAND';
+      const scanned = this.gs.state.discoveries.includes(this.orbiting.id);
+      p += scanned ? '  ·  L — LAND' : '  ·  L — LAND (SCAN FIRST)';
       return p;
     }
     for (const station of this.solar.stations)
@@ -1603,6 +1859,7 @@ export class Game {
     const targetPos = this._targetWorldPos();
     const mission = this.missions?.active;
     const missionProgress = mission ? this.missions.active.progress(this.missions.makeContext(this)) : null;
+    this.hud.setMode('space');
 
     let action = null;
     if (this.scanning) action = { title: 'SCANNING…', p: this.scanning.t / this.scanning.dur };
@@ -1620,6 +1877,8 @@ export class Game {
       shield: st.shield, shieldMax: stats.shieldMax,
       energy: st.energy, energyMax: 100,
       hull: st.hull, hullMax: 100,
+      cargo: cargoUsed(this.gs.state.resources),
+      cargoMax: stats.cargoCapacity,
       credits: this.gs.credits,
       level: this.gs.level(),
       clock: this.time.dateString(),
@@ -1647,20 +1906,32 @@ export class Game {
     const satiety = this.gs.satiety;
     const alt = s.altitude;
     const vspeed = s.shipState.velocity.y;
+    const mode = s.vehicleMode; // 'shuttle' | 'rover' | 'foot'
+    this.hud.setMode(mode, s.cfg.name);
 
     // build a warning stack (fuel + hunger)
     let warn = '';
-    if (st.fuel < stats.fuelCapacity * 0.15) warn += '⚠ FUEL LOW';
+    if (mode !== 'foot' && st.fuel < stats.fuelCapacity * 0.15) warn += '⚠ FUEL LOW';
     if (satiety <= 0) warn += (warn ? '  ·  ' : '') + '⚠ STARVING — eat at the outpost';
     else if (satiety < ECONOMY.surface.hungerWarnAt) warn += (warn ? '  ·  ' : '') + '⚠ HUNGRY — eat at the outpost';
 
     let action = null;
     if (this.repairJob) action = { title: 'REPAIRING ROVER…', p: Math.min(1, this.repairJob.t / this.repairJob.dur) };
 
-    const vehicleLabel = s.vehicleMode === 'rover' ? 'ROVER' : 'SHUTTLE';
-    const distText = s.vehicleMode === 'rover'
-      ? `SPEED ${formatSpeed(s.roverState.speed * 4)}`
-      : `ALT ${Math.max(0, alt).toFixed(0)} · VS ${vspeed.toFixed(1)}`;
+    let vehicleLabel, distText, speedText;
+    if (mode === 'rover') {
+      vehicleLabel = 'ROVER';
+      distText = `CELL ${Math.round(st.energy)}% · TERRAIN HUG`;
+      speedText = formatSpeed(s.roverState.speed * 4);
+    } else if (mode === 'foot') {
+      vehicleLabel = 'ON FOOT (EVA)';
+      distText = `GRAVITY ${(s.gravAccel).toFixed(2)} · JUMP SPACE`;
+      speedText = s.footState.velocity.length().toFixed(1) + ' M/S' + (s.footState.grounded ? '' : ' · AIRBORNE');
+    } else {
+      vehicleLabel = s.landed ? 'SHUTTLE — GROUNDED' : 'SHUTTLE — AIRBORNE';
+      distText = `ALT ${Math.max(0, alt).toFixed(0)} · VS ${vspeed.toFixed(1)}`;
+      speedText = formatSpeed(s.shipState.speed * 4);
+    }
 
     this.hud.update({
       fuel: st.fuel, fuelMax: stats.fuelCapacity,
@@ -1668,6 +1939,8 @@ export class Game {
       energy: st.energy, energyMax: 100,
       hull: st.hull, hullMax: 100,
       satiety: satiety / 100,
+      cargo: cargoUsed(this.gs.state.resources),
+      cargoMax: stats.cargoCapacity,
       credits: this.gs.credits,
       level: this.gs.level(),
       clock: this.time.dateString(),
@@ -1677,10 +1950,11 @@ export class Game {
       prompt: this._currentPrompt(),
       action,
       target: {
-        name: `${s.cfg.name} — ${s.landed ? 'TOUCHDOWN' : 'FLIGHT'} · ${vehicleLabel}`,
+        name: `${s.cfg.name} · ${vehicleLabel}`,
         dist: distText
       },
-      speed: formatSpeed(s.vehicleMode === 'rover' ? s.roverState.speed * 4 : s.shipState.speed * 4)
+      speed: speedText,
+      speedLabel: mode === 'foot' ? 'GROUND SPD' : 'SPEED'
     });
   }
 
@@ -1734,6 +2008,7 @@ export class Game {
     if (!this.shipVisual.parent) this.scene.add(this.shipVisual.group);
     this.trail.clear(keep);
     this._setupComposer();
+    this._syncMobileMode();
     this.toasts.show('GRAPHICS', `Quality: ${this.quality.toUpperCase()}`, 'info', 2000);
   }
 

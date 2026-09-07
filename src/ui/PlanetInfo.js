@@ -2,6 +2,7 @@
 // set target / fast travel / scan / open codex.
 import { el, clearChildren } from '../utils/UI.js';
 import { findBody, factsLines } from '../planets/PlanetData.js';
+import { SURFACE_THEMES } from '../surface/SurfaceThemes.js';
 
 export class PlanetInfoPanel {
   constructor(root, actions) {
@@ -31,6 +32,12 @@ export class PlanetInfoPanel {
     table.appendChild(el('div', 'pi-k', 'Distance'));
     table.appendChild(el('div', 'pi-v', dist));
     this.rootEl.appendChild(table);
+
+    const themeKey = cfg.surface && cfg.surface.theme;
+    if ((scanned || visited) && themeKey && SURFACE_THEMES[themeKey]) {
+      this.rootEl.appendChild(el('div', 'pi-codex',
+        `🗺 SURFACE MAP — ${SURFACE_THEMES[themeKey].title}`));
+    }
 
     if (scanned || visited) {
       const codex = el('div', 'pi-codex', cfg.codex || '');

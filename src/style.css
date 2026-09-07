@@ -148,6 +148,17 @@ input.input, select.input {
 .hud { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
 .hud button, .hud .hud-timewarp { pointer-events: auto; }
 .hud-top-left { position: absolute; top: 14px; left: 14px; }
+/* vehicle mode chip — changes with ship / shuttle / rover / astronaut */
+.hud-mode {
+  display: inline-block; margin-bottom: 8px; padding: 5px 12px;
+  font-size: 11px; letter-spacing: 0.22em; color: #fff; white-space: nowrap;
+  background: rgba(10, 22, 42, 0.82); border: 1px solid var(--accent);
+  border-radius: 4px; text-shadow: 0 0 8px rgba(110, 198, 255, 0.6);
+  transition: border-color 0.25s;
+}
+.hud-mode[data-mode="shuttle"] { border-color: #7dffb0; text-shadow: 0 0 8px rgba(125, 255, 176, 0.6); }
+.hud-mode[data-mode="rover"] { border-color: var(--accent2); text-shadow: 0 0 8px rgba(255, 179, 71, 0.6); }
+.hud-mode[data-mode="foot"] { border-color: #e8ecf2; text-shadow: 0 0 8px rgba(232, 236, 242, 0.7); }
 .stat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
 .stat-label { font-size: 10px; letter-spacing: 0.18em; color: var(--dim); width: 52px; }
 .bar-track {
@@ -160,6 +171,7 @@ input.input, select.input {
 .c-energy .bar-fill, .bar-fill.c-energy { background: linear-gradient(90deg, #9e8a1a, #ffe36e); }
 .c-hull .bar-fill, .bar-fill.c-hull { background: linear-gradient(90deg, #9e1a38, #ff7d95); }
 .c-food .bar-fill, .bar-fill.c-food { background: linear-gradient(90deg, #2f8a4a, #7dffa8); }
+.c-cargo .bar-fill, .bar-fill.c-cargo { background: linear-gradient(90deg, #7a4ad8, #c89aff); }
 .hud-credits { margin-top: 8px; font-size: 14px; color: var(--accent2); letter-spacing: 0.1em; text-shadow: 0 0 8px rgba(255, 179, 71, 0.4); }
 .hud-level { margin-left: 12px; color: var(--dim); font-size: 11px; }
 
@@ -315,6 +327,19 @@ input.input, select.input {
 .base-card.info { border-color: rgba(125, 255, 168, 0.35); }
 .base-card-title { font-size: 13px; letter-spacing: 0.14em; color: #fff; }
 .base-card-sub { font-size: 11.5px; color: var(--dim); margin-top: 3px; max-width: 420px; }
+.base-supply { flex-direction: column; align-items: flex-start; border-color: rgba(110, 198, 255, 0.5); }
+.supply-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 10px; width: 100%; }
+.supply-cell {
+  border: 1px solid var(--panel-border); border-radius: 5px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 4px; background: rgba(10, 20, 38, 0.45);
+}
+.supply-item { font-size: 11px; letter-spacing: 0.12em; color: #fff; }
+.supply-cost { font-size: 10.5px; color: var(--dim); }
+.supply-orders { margin-top: 10px; width: 100%; display: flex; flex-direction: column; gap: 5px; }
+.supply-order-row {
+  font-size: 11.5px; color: var(--accent); letter-spacing: 0.06em;
+  border-left: 2px solid var(--accent); padding-left: 8px;
+}
 .base-cooldown { font-size: 11px; color: var(--warn); letter-spacing: 0.1em; margin-top: 4px; text-align: center; }
 .base-leave { margin-top: 14px; width: 100%; }
 
@@ -439,6 +464,18 @@ input.input, select.input {
 }
 .mc-btn.held { background: rgba(110, 198, 255, 0.4); border-color: var(--accent); }
 .mc-boost { border-color: var(--accent2) !important; color: #ffe9c4 !important; }
+/* astronaut JUMP button (visible in on-foot mode only) */
+.mc-jump {
+  border-color: #e8ecf2 !important; color: #fff !important;
+  box-shadow: 0 0 14px rgba(232, 236, 242, 0.3);
+}
+/* EVA / board-shuttle toggle (visible on surface modes only) */
+.mc-eva {
+  position: absolute; right: 22px; bottom: 118px;
+  width: 54px; height: 54px; border-radius: 50%;
+  border-color: #7dffb0 !important; color: #d8ffe6 !important;
+  font-size: 10px;
+}
 /* the "fire" button: big, bottom-right, above the look area */
 .mc-interact {
   position: absolute; right: 22px; bottom: 26px;
