@@ -321,7 +321,8 @@ export const DEFAULT_SETTINGS = {
   backPauses: true,    // Android back button / browser Back = ESC
   streaming: 'medium', // planet-surface object streaming budget
   cloudSync: false,    // mirror saves + settings to the connected account
-  region: 'auto'       // preferred server region
+  region: 'auto',      // preferred server region
+  builderView: '3d'    // rocket workshop: '3d' assembly pad or '2d' blueprint
 };
 
 export function isTouchDevice() {

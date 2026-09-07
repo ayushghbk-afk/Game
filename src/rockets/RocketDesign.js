@@ -37,11 +37,11 @@ export function nodesOf(part) {
   const r = part.r || 0.5;
   const nodes = [];
   // Nose cones and capsules only attach underneath.
-  const noTop = part.shape === 'cone' && (part.cat === 'command' || part.id === 'fairing');
+  const noTop = part.nose || (part.shape === 'cone' && (part.cat === 'command' || part.id === 'fairing'));
   if (!noTop) nodes.push({ kind: 'top', x: 0, y: h / 2, z: 0 });
   nodes.push({ kind: 'bottom', x: 0, y: -h / 2, z: 0 });
   // Radial nodes around the hull for tanks and structural parts.
-  if (part.cat === 'fuel' || part.cat === 'structure' || part.cat === 'booster') {
+  if (!part.nose && (part.cat === 'fuel' || part.cat === 'structure' || part.cat === 'booster')) {
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2;
       nodes.push({ kind: 'radial', x: Math.cos(a) * r, y: 0, z: Math.sin(a) * r, angle: a });

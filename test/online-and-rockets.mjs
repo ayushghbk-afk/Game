@@ -1652,6 +1652,129 @@ await check('LandingSequence reaches touchdown and calls onDone', async () => {
   seq.dispose();
 });
 
+// =====================================================================
+console.log('\n== EXPANDED CATALOGUE + PART TEXTURES ==');
+const { texFamily, partTexture } = await import('../src/rockets/PartTextures.js');
+// buildRocketMesh is already imported above with the workshop tests
+
+await check('catalogue grew past 50 detailed parts', () => {
+  assert(ROCKET_PARTS.length >= 50, 'expected 50+ parts, got ' + ROCKET_PARTS.length);
+  const withTex = ROCKET_PARTS.filter(p => p.tex).length;
+  assert(withTex >= ROCKET_PARTS.length * 0.9, 'most parts should name a texture family');
+});
+await check('every texture family resolves and every part gets a material entry', () => {
+  for (const p of ROCKET_PARTS) {
+    const fam = texFamily(p);
+    assert(typeof fam === 'string' && fam.length, 'no family for ' + p.id);
+    const entry = partTexture(p);
+    assert(entry && typeof entry.tint === 'boolean', 'partTexture failed for ' + p.id);
+  }
+});
+await check('a rocket using the new parts is flightworthy and meshes in every shape', () => {
+  const design = RD.upgradeDesign({
+    version: 1, name: 'New-parts bird',
+    parts: [
+      { id: 'eng-boar', qty: 1 }, { id: 'srb-mega', qty: 2 },
+      { id: 'tank-onion', qty: 1 }, { id: 'nose-cone', qty: 1 },
+      { id: 'dec-stack', qty: 1 }, { id: 'eng-aerospike', qty: 1 },
+      { id: 'tank-balloon', qty: 1 }, { id: 'dec-stack', qty: 1 },
+      { id: 'util-heatshield', qty: 1 }, { id: 'tank-cryo', qty: 1 },
+      { id: 'pay-cubesat', qty: 1 }, { id: 'util-dock', qty: 1 },
+      { id: 'pay-telescope', qty: 1 }, { id: 'util-antenna', qty: 1 },
+      { id: 'util-solar-small', qty: 1 }, { id: 'util-battery', qty: 1 },
+      { id: 'cmd-mk1', qty: 1 }, { id: 'util-chute', qty: 1 }
+    ]
+  });
+  const a = analyzeDesign(design);
+  assert(a.valid, 'new-parts rocket invalid: ' + a.errors.join('; '));
+  const mesh = buildRocketMesh(design);
+  let meshCount = 0;
+  mesh.traverse(o => { if (o.isMesh) meshCount++; });
+  assert(meshCount >= design.parts.length, 'mesh missing geometry');
+});
+await check('nose cones expose no top node; tanks still do', () => {
+  const { nodesOf } = RD;
+  const nose = nodesOf(getPart('nose-cone'));
+  assert(!nose.some(n => n.kind === 'top'), 'nose cone has a top node');
+  assert(nose.some(n => n.kind === 'bottom'), 'nose cone lost its bottom node');
+  assert(!nose.some(n => n.kind === 'radial'), 'nose cone has radial nodes');
+  const tank = nodesOf(getPart('tank-l'));
+  assert(tank.some(n => n.kind === 'top') && tank.some(n => n.kind === 'radial'), 'tank nodes changed');
+});
+
+// =====================================================================
+console.log('\n== 2D BUILDER + SHARE CODES ==');
+const { Builder2D } = await import('../src/rockets/Builder2D.js');
+const { encodeShareCode, decodeShareCode } = await import('../src/ui/RocketBuilder.js');
+
+await check('the 2D blueprint builder places, snaps and stacks parts', () => {
+  const design = RD.emptyDesign('2D test');
+  const canvas = document.createElement('canvas');
+  const b = new Builder2D(canvas, design, {});
+  // place an engine, then a tank directly above it — should clip to the top node
+  b.beginPlace('eng-swivel');
+  b.commitHeld();
+  assert(design.parts.length === 1, 'engine not placed');
+  const engineTop = design.parts[0].pos[1] + (getPart('eng-swivel').h / 2);
+  b.beginPlace('tank-m');
+  b._moveTo(0.1, engineTop + 1.3);     // near the engine's top node
+  const drop = b._lastDrop;
+  assert(drop && drop.snapped, 'tank did not snap to the engine');
+  b.commitHeld();
+  assert(design.parts.length === 2, 'tank not placed');
+  assert(design.parts[1].pos[0] === 0, 'snapped tank drifted off-axis');
+  // selection, nudge, delete
+  b.select(design.parts[1].uid);
+  assert(b.selected === design.parts[1].uid, 'selection lost');
+  const yBefore = design.parts[1].pos[1];
+  b.nudgeSelected(0, 0.5, 0);
+  assert(design.parts[1].pos[1] > yBefore, 'nudge did not move the part');
+  assert(b.deleteSelected(), 'delete failed');
+  assert(design.parts.length === 1, 'part not deleted');
+  b.dispose();
+});
+await check('radial parts mirror around the core in 2D symmetry mode', () => {
+  const design = RD.emptyDesign('mirror');
+  const canvas = document.createElement('canvas');
+  const b = new Builder2D(canvas, design, {});
+  b.setSymmetry(true);
+  b.beginPlace('tank-l'); b.commitHeld();           // core tank on the pad
+  const tank = design.parts[0];
+  b.beginPlace('srb-med');
+  // aim beside the tank's radial node (its hull radius + the SRB's radius)
+  b._moveTo(tank.pos[0] + 1.8, tank.pos[1]);
+  const drop = b._lastDrop;
+  assert(drop && drop.radial, 'strap-on not detected as radial');
+  b.commitHeld();
+  const radials = design.parts.filter(p => p.radial);
+  assert(radials.length === 2, 'symmetry twin missing');
+  assert(radials[0].pos[0] * radials[1].pos[0] < 0, 'twins are on the same side');
+  b.dispose();
+});
+await check('share codes round-trip a design with no server', () => {
+  const design = RD.upgradeDesign(starterDesign());
+  design.name = 'Code Bird';
+  const code = encodeShareCode(design);
+  assert(code.startsWith('SO:R2:'), 'bad code prefix');
+  const back = decodeShareCode(code);
+  assert(back.name === 'Code Bird', 'name lost in code');
+  assert(back.parts.length === design.parts.length, 'parts lost in code');
+  let threw = false;
+  try { decodeShareCode('hello world'); } catch { threw = true; }
+  assert(threw, 'garbage code accepted');
+});
+await check('the VAB offers both build modes and persists the choice', () => {
+  const g = new GameState();
+  const vab = new RocketBuilder(root, { gs: g, backend: new Backend(), toast: () => {}, onLaunch: () => {} });
+  vab.show();
+  const buttons = [...vab.modal.body.querySelectorAll('.vab-viewmode .btn')];
+  assert(buttons.length === 2 && buttons.some(b => b.textContent.includes('2D')), 'no 2D/3D switch');
+  assert(vab.modal.body.textContent.includes('CODE'), 'share-code buttons missing');
+  vab._setViewMode('2d');
+  assert(g.state.settings.builderView === '2d', 'builder view not stored in settings');
+  vab.hide();
+});
+
 globalThis.fetch = realFetch;
 
 console.log(`${passed} passed, ${failed} failed`);

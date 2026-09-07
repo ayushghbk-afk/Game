@@ -17,6 +17,26 @@ import {
   derivedStages, structuralIssues, designBounds, findPart
 } from '../rockets/RocketDesign.js';
 import { BuilderScene } from '../rockets/BuilderScene.js';
+import { Builder2D } from '../rockets/Builder2D.js';
+import { drawPartIcon } from '../rockets/PartDraw2D.js';
+
+// --------------------------------------------------------------- share codes
+// Rockets can be shared without any server: the design is compressed into a
+// copyable text code ("SO:R2:…"). Anyone can paste it back in IMPORT.
+const CODE_PREFIX = 'SO:R2:';
+function encodeShareCode(design) {
+  const json = exportDesign2(design);
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return CODE_PREFIX + b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function decodeShareCode(code) {
+  const raw = String(code || '').trim();
+  if (!raw.startsWith(CODE_PREFIX)) throw new Error('That is not a Solar Odyssey rocket code.');
+  const b64 = raw.slice(CODE_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+  return sanitizeDesign2(decodeURIComponent(escape(atob(padded))));
+}
+export { encodeShareCode, decodeShareCode };
 
 const fmt = (n, d = 1) => (Math.round(n * 10 ** d) / 10 ** d).toLocaleString();
 
@@ -130,10 +150,38 @@ export class RocketBuilder {
     return a;
   }
 
+  /** Which builder mode is active — '2d' blueprint or '3d' assembly. */
+  _viewMode() {
+    return this.hooks.gs?.state?.settings?.builderView === '2d' ? '2d' : '3d';
+  }
+
+  _setViewMode(mode) {
+    // Route through the game's settings pipeline when available so the choice
+    // lands in browser storage AND mirrors to the account with cloud sync.
+    if (this.hooks.settingsChanged) this.hooks.settingsChanged({ builderView: mode });
+    else if (this.hooks.gs?.state?.settings) {
+      this.hooks.gs.state.settings.builderView = mode;
+      this.hooks.gs.saveSettings?.();
+    }
+    this.render();
+  }
+
   _viewport() {
     const col = el('div', 'vab-col vab-viewport');
     const head = el('div', 'vab-view-head');
-    head.appendChild(el('div', 'vab-col-title', '3D ASSEMBLY'));
+
+    // 2D / 3D switch — same design underneath, pick how you want to build
+    const seg = el('div', 'vab-viewmode');
+    for (const [mode, label, title] of [
+      ['2d', '2D BLUEPRINT', 'Side view — stack parts top to bottom, like classic rocket games'],
+      ['3d', '3D ASSEMBLY', 'Full 3D pad — orbit the camera and strap boosters on any side']
+    ]) {
+      const b = el('button', 'btn btn-small' + (this._viewMode() === mode ? ' active' : ''), label);
+      b.title = title;
+      b.addEventListener('click', () => { if (this._viewMode() !== mode) this._setViewMode(mode); });
+      seg.appendChild(b);
+    }
+    head.appendChild(seg);
 
     const symWrap = el('label', 'vab-sym');
     const sym = el('input');
@@ -151,8 +199,9 @@ export class RocketBuilder {
     this._canvas = canvas;
     col.appendChild(canvas);
 
-    col.appendChild(el('div', 'vab-hint dim',
-      'Tap a part to add it · drag parts to move and snap · drag empty space to orbit · pinch or scroll to zoom'));
+    col.appendChild(el('div', 'vab-hint dim', this._viewMode() === '2d'
+      ? 'Tap a part to add it · drag parts onto the glowing nodes to clip them in place · drag empty space to pan · pinch or scroll to zoom'
+      : 'Tap a part to add it · drag parts to move and snap · drag empty space to orbit · pinch or scroll to zoom'));
 
     // selection toolbar (delete / mirror / nudge)
     const tools = el('div', 'vab-tools');
@@ -191,26 +240,51 @@ export class RocketBuilder {
   _mountScene() {
     if (!this._canvas || !this._canvas.isConnected) return;
     this.builder?.dispose();
-    try {
-      this.builder = new BuilderScene(this._canvas, this.design, {
-        onChange: () => this._afterChange(),
-        onSelect: (uid) => this._renderTools(uid),
-        sound: (k) => this.hooks.sound?.(k)
-      });
+    this.builder = null;
+    if (!this._resizeBound) {
+      this._resizeBound = () => this.builder?.resize();
+      window.addEventListener('resize', this._resizeBound);
+    }
+    const mode = this._viewMode();
+
+    if (mode === '2d') {
+      // Blueprint mode — pure canvas 2D, works even without WebGL.
+      this.builder = new Builder2D(this._canvas, this.design, this._builderHooks());
       this.builder.setSymmetry(this._symmetry !== false);
       this.builder.resize();
-      if (!this._resizeBound) {
-        this._resizeBound = () => this.builder?.resize();
-        window.addEventListener('resize', this._resizeBound);
-      }
+      this._startLoop();
+      return;
+    }
+
+    try {
+      this.builder = new BuilderScene(this._canvas, this.design, this._builderHooks());
+      this.builder.setSymmetry(this._symmetry !== false);
+      this.builder.resize();
       this._startLoop();
     } catch (e) {
-      // WebGL can be unavailable (headless tests, blocked GPU) — the builder
-      // must still be usable through the parts list and readout.
-      console.warn('3D builder unavailable', e);
-      this._canvas.replaceWith(el('div', 'empty-state dim',
-        '3D preview unavailable in this browser — parts and analysis still work.'));
+      // WebGL can be unavailable (headless tests, blocked GPU) — fall back to
+      // the 2D blueprint builder, which needs only a 2D canvas context.
+      console.warn('3D builder unavailable, falling back to 2D', e);
+      try {
+        this.builder = new Builder2D(this._canvas, this.design, this._builderHooks());
+        this.builder.setSymmetry(this._symmetry !== false);
+        this.builder.resize();
+        this._startLoop();
+        this.hooks.toast?.('2D MODE', 'WebGL is unavailable — the 2D blueprint builder is active.', 'info', 4500);
+      } catch {
+        this._canvas.replaceWith(el('div', 'empty-state dim',
+          'Preview unavailable in this browser — parts and analysis still work.'));
+      }
     }
+  }
+
+  /** Shared hooks for whichever builder is mounted. */
+  _builderHooks() {
+    return {
+      onChange: () => this._afterChange(),
+      onSelect: (uid) => this._renderTools(uid),
+      sound: (k) => this.hooks.sound?.(k)
+    };
   }
 
   /** Called whenever the design changes: refresh the readout in place. */
@@ -251,6 +325,8 @@ export class RocketBuilder {
       if (p.thrust) spec.push(`${p.thrust} kN`);
       if (p.isp) spec.push(`Isp ${p.isp}s`);
       if (p.crew) spec.push(`${p.crew} crew`);
+      if (p.science) spec.push(`${p.science} sci`);
+      if (p.power) spec.push(`${p.power} EC`);
       row.innerHTML = `
         <div class="pr-main">
           <div class="pr-name">${p.name}</div>
@@ -258,6 +334,11 @@ export class RocketBuilder {
           <div class="pr-desc dim">${p.desc}</div>
         </div>
         <div class="pr-cost">${p.cost.toLocaleString()} CR</div>`;
+      // textured side-view icon drawn on a tiny canvas
+      const icon = el('canvas', 'part-icon');
+      icon.width = 48; icon.height = 48;
+      drawPartIcon(icon, p);
+      row.insertBefore(icon, row.firstChild);
       const add = el('button', 'btn btn-small btn-primary', '+');
       add.title = 'Add to the rocket, then drag it into place';
       const place = () => {
@@ -304,6 +385,8 @@ export class RocketBuilder {
     mk('💾 SAVE', '', () => this._saveDesign());
     mk('⤓ EXPORT', '', () => this._exportFile());
     mk('⤒ IMPORT', '', () => this._importFile());
+    mk('🔗 CODE', '', () => this._copyShareCode());
+    mk('📋 PASTE CODE', '', () => this._importShareCode());
     mk('☁ SHARE', '', () => this._share());
     mk('CLEAR', 'btn-danger', () => {
       this.design = emptyDesign('New rocket');
@@ -551,6 +634,44 @@ export class RocketBuilder {
       reader.readAsText(file);
     });
     input.click();
+  }
+
+  /** Serverless sharing: copy the design as a pasteable text code. */
+  async _copyShareCode() {
+    const code = encodeShareCode(this.design);
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+        copied = true;
+      }
+    } catch { /* fall through to prompt */ }
+    if (!copied && typeof window.prompt === 'function') {
+      window.prompt('Copy this rocket code:', code);
+      copied = true;
+    }
+    this.hooks.toast?.('SHARE CODE',
+      copied ? 'Rocket code copied — send it to a friend, they press PASTE CODE.' : 'Copy not available in this browser.',
+      copied ? 'success' : 'warn', copied ? 3500 : 5000);
+  }
+
+  /** Paste a share code from another player and load it. */
+  _importShareCode() {
+    if (typeof window.prompt !== 'function') {
+      this.hooks.toast?.('PASTE CODE', 'This browser cannot accept pasted codes — use IMPORT from a file.', 'warn', 4000);
+      return;
+    }
+    const raw = window.prompt('Paste a Solar Odyssey rocket code (SO:R2:…)');
+    if (!raw) return;
+    try {
+      this.design = decodeShareCode(raw);
+      this.builder?.setDesign(this.design);
+      this.tab = 'build';
+      this.hooks.toast?.('IMPORTED', `"${this.design.name}" loaded from a share code.`, 'success');
+      this.render();
+    } catch (e) {
+      this.hooks.toast?.('IMPORT FAILED', e.message, 'warn', 4000);
+    }
   }
 
   _launch(analysis) {

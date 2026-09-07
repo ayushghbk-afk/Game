@@ -156,7 +156,7 @@ Feature placement follows published planetary science:
 | **Settings** | Persisted on their own storage key — they survive NEW GAME, apply before any career loads, and mirror to your account when cloud sync is on |
 | **Account** | **Guest by default** (everything in browser storage, no sign-up) or an email account for cloud saves, friends and rocket sharing |
 | **Online** | Regional **server browser** (auto-detects your nearest region, shows player counts + estimated ping), host your own server, **friends list** with requests, online status and invites |
-| **Rockets** | **Rocket Workshop (VAB)**: 30+ parts across 7 categories, multi-stage stacks, live flight analysis (mass, thrust, Isp, TWR, per-stage delta-v), **launch from Earth to orbit** with a physical staged ascent, save / export / import / publish designs |
+| **Rockets** | **Rocket Workshop (VAB)**: **55+ detailed, procedurally-textured parts** across 7 categories, **choose 2D BLUEPRINT or 3D ASSEMBLY building**, snap-to-node placement with audio/haptic clip feedback, multi-stage stacks, live flight analysis (mass, thrust, Isp, TWR, per-stage delta-v), **launch from Earth to orbit** with a physical staged ascent, save / export / import / **share-code** / publish designs |
 | **Streaming** | Planet surfaces generate and erase world objects around the player in deterministic cells, so memory stays flat however far you drive |
 | **Performance** | LOD planets, quality presets LOW→ULTRA (auto-detects mobile), bloom toggle, pooled particles/asteroids, FPS cap 30/60, star density scaling |
 | **Robustness** | WebGL detection, storage-unavailable handling, corrupted-save recovery, texture fallbacks, no fatal crashes on missing assets (everything is procedural) |
@@ -217,25 +217,44 @@ play time and last-saved time. Each career lives in its own slot (6 max), so
 starting a new expedition never erases the old one. **EXPORT** writes a career
 file you can back up or hand to a friend; **IMPORT** reads one back.
 
-### Rocket Workshop — 3D drag-and-drop assembly
+### Rocket Workshop — 2D blueprint *or* 3D drag-and-drop assembly
 
-**Main menu → 🚀 ROCKET WORKSHOP** (also on the pause menu). The workshop is a
-real 3D launch pad you can orbit around, not a flat parts list:
+**Main menu → 🚀 ROCKET WORKSHOP** (also on the pause menu). Pick your build
+style with the toggle at the top of the viewport — both write the same design
+format, so you can start in one and finish in the other (the choice is stored
+in your settings):
+
+* **3D ASSEMBLY** — a real launch pad you can orbit around; strap boosters on
+  any side of the core.
+* **2D BLUEPRINT** — the classic side-view stack builder. Pure canvas 2D, so it
+  even runs where WebGL is unavailable.
 
 | Action | Mouse | Touch |
 | --- | --- | --- |
 | Add a part | click it in the palette | tap it in the palette |
 | Move a part | drag it | drag it |
-| Orbit the pad | drag empty space | drag empty space |
+| Orbit (3D) / pan (2D) | drag empty space | drag empty space |
 | Zoom | scroll wheel | pinch |
 | Select / edit | click a part | tap a part |
 
-Parts **snap to attachment nodes** — green dots appear while you drag, and the
-nearest one turns amber when it will catch. Stack them nose-to-tail for a
+Parts **clip onto attachment nodes** — green dots appear while you drag, the
+catching one turns amber, and you get a soft *click* + a haptic pulse on a
+touch screen the moment a part locks in. Stack them nose-to-tail for a
 conventional rocket, or push one against the *side* of a tank to strap on a
 booster. With **SYMMETRY** on, side-mounted boosters automatically get a twin
 on the opposite side so the vehicle stays balanced. The selection toolbar
 nudges, mirrors (⇋) or deletes (✕) the highlighted part.
+
+The catalogue holds **55+ parts** — capsules and inline cockpits, workhorse
+and balloon tanks, radials, seven engines from a 2 kN probe motor to the
+3,200 kN KR-1 "Boar", five solids, nose cones, interstages, grid fins,
+decouplers, fairings, payloads (satellites, landers, habitats, rovers, fuel
+depots, CubeSat dispensers, a space telescope) and utilities (chutes, legs,
+RCS, solar wings, batteries, radiators, docking ports, high-gain dishes, heat
+shields). Every part is drawn with its own **procedural texture** — riveted
+hull panels, stencil-banded tanks, hazard-striped decouplers, heat-discoloured
+engine bells, solar-cell grids, ablative tiles — in the 3D view, the 2D view
+and the palette icons.
 
 Staging is read from the geometry, not from list order: every decoupler splits
 the stack, and strap-on boosters burn with the stage they sit beside. The
@@ -244,8 +263,8 @@ rocket you watch lift off is assembled from exactly the parts you placed.
 Watch the analysis panel as you build: it
 computes real mass, thrust, mass-flow-weighted Isp, thrust-to-weight and
 per-stage delta-v via the rocket equation, and refuses to launch anything that
-cannot fly — including 3D-only faults like a part left floating in mid-air.
-Reaching orbit needs **9,400 m/s of delta-v and TWR ≥ 1.15** — the
+cannot fly — including builder-only faults like a part left floating in
+mid-air. Reaching orbit needs **9,400 m/s of delta-v and TWR ≥ 1.15** — the
 same numbers the flight simulation uses, so the readout never lies.
 
 **🚀 LAUNCH FROM EARTH** flies the ascent for real: countdown, lift-off, gravity
@@ -253,9 +272,10 @@ turn, staging as tanks run dry, and a circularisation burn. Make orbit and you
 are dropped into normal flight in Earth orbit with a mission payout; run out of
 propellant and you are told exactly how short you were.
 
-Designs **SAVE** to your career, **EXPORT/IMPORT** as `.rocket.json` files, and
-**SHARE** publicly (with an account) for other commanders to download from the
-**SHARED** tab.
+Designs **SAVE** to your career, **EXPORT/IMPORT** as `.rocket.json` files,
+**CODE / PASTE CODE** turns a design into a copyable text string you can share
+with no server at all, and **SHARE** publishes publicly (with an account) for
+other commanders to download from the **SHARED** tab.
 
 ---
 
