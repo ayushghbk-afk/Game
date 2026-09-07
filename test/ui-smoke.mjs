@@ -136,9 +136,10 @@ check('ship panel shows upgrade tiers', () => {
 check('settings modal renders all controls', () => {
   menu.showSettings();
   const rows = menu.settingsModal.body.querySelectorAll('.settings-row');
-  assert(rows.length === 9, 'expected 9 setting rows, got ' + rows.length);
+  assert(rows.length === 10, 'expected 10 setting rows, got ' + rows.length);
   const text = menu.settingsModal.body.textContent;
   assert(text.includes('Mobile controls'), 'mobile controls setting missing');
+  assert(text.includes('Aim assist'), 'aim assist setting missing');
   menu.settingsModal.close();
 });
 check('help modal renders controls table', () => {

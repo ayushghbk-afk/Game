@@ -16,11 +16,16 @@ mobile.
 **Desktop:** `W/A/S/D` thrust · mouse look (click to capture) · `Shift` boost ·
 `Space`/`Ctrl` up/down · `E` interact (orbit / dock / mine) · `R` scan · `T` target ·
 `M` map · `I` info · `L` land · `V` camera · `B` brake · `J` missions · `H` help · `Esc` pause
+— if the browser ever refuses the mouse capture, just **hold the left mouse
+button and move** to look (the game detects this and tells you once).
 
-**Mobile:** left joystick = move, right joystick = look, plus BOOST / BRAKE /
-UP / DOWN and SCAN / MAP / E / TGT / LOG / CODEX / PAUSE buttons. If your
-touchscreen isn't detected automatically, turn them on any time from
-**Settings → Mobile controls → ON**.
+**Mobile (Free Fire / PUBG layout):** left = move joystick, right half of the
+screen = drag to look (your finger follows the view), big `E` button =
+interact (hold to mine), plus BOOST / BRAKE / ▲ / ▼ and SCAN / TGT / MAP /
+LOG / CODEX / LAND / PAUSE. Aim assist (Settings) gently steers the nose
+toward the current target, like auto-aim in FFM/PUBG — toggle it off for
+full manual control. If your touchscreen isn't detected automatically, turn
+the controls on any time from **Settings → Mobile controls → ON**.
 
 ### The core loop
 
@@ -68,12 +73,23 @@ npm run build      # production build → dist/
 npm run preview    # serve the production build
 ```
 
-Tests (headless, no browser needed):
+Tests:
 
 ```bash
-node test/smoke.mjs       # world/physics/economy/missions/save — 44 checks
-node test/ui-smoke.mjs    # UI modules under jsdom — 25 checks
-node test/static-host.mjs # unbundled boot path (plain static host / CDN three)
+npm test                  # runs all of the following
+
+node test/smoke.mjs         # world/physics/economy/missions/save — 44 checks
+node test/ui-smoke.mjs      # UI modules under jsdom — 25 checks
+node test/static-host.mjs   # unbundled boot path (plain static host / CDN three)
+node test/css-input-layers.mjs # pointer-events layering (invisible-overlay guard)
+node test/modal-state.mjs   # modal bookkeeping / ESC-close regression (jsdom)
+node test/aim-assist.mjs    # auto-aim math (cone/range/rate/direction) — 11 checks
+node test/browser-clicks.mjs # real-browser click test — runs when a Chromium/
+                              # Chrome binary is available (CHROME_PATH),
+                              # otherwise skips gracefully
+node test/browser-controls.mjs # mouse (pointer lock + drag fallback) & FFM/PUBG
+                              # touch layout in a real browser; same CHROME_PATH
+                              # opt-in/skip behavior
 ```
 
 ## DEPLOY TO GITHUB PAGES

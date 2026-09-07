@@ -18,6 +18,7 @@ import { buildShipMesh, ShipTrail } from '../spacecraft/Ship.js';
 import { ShipPhysics } from '../spacecraft/ShipPhysics.js';
 import { ShipController } from '../spacecraft/ShipController.js';
 import { shipStats } from '../spacecraft/ShipUpgrades.js';
+import { computeAimAssist } from '../utils/AimAssist.js';
 import { GameState, ACHIEVEMENTS } from './GameState.js';
 import { TimeSystem } from './TimeSystem.js';
 import { MissionManager } from '../missions/MissionManager.js';
@@ -35,6 +36,7 @@ import { Toasts } from '../ui/Toasts.js';
 import { LoadingScreen } from '../ui/LoadingScreen.js';
 
 import { el, makeModal } from '../utils/UI.js';
+import { topVisibleModal } from '../utils/modalState.js';
 import { formatDistance, formatSpeed } from '../planets/PlanetData.js';
 import { cargoUsed } from '../world/Resources.js';
 import { mulberry32, clamp } from '../utils/Noise.js';
@@ -170,13 +172,24 @@ export class Game {
       scan: () => this.tryScan(),
       map: () => this.toggleMap(),
       target: () => this.cycleTarget(),
+      land: () => this.tryLand(),
       missions: () => this.toggleModal('missions'),
       codex: () => this.toggleModal('codex'),
       pause: () => {
+        this.syncModalState();
         if (this.modalOpen) this.closeModal();
         else if (this.mode !== 'menu' && this.mode !== 'loading') this.togglePause();
       }
     });
+    // The drag-to-look fallback fires this on the player's first actual
+    // use (mouse environments where the browser refused/silently failed the
+    // pointer lock) — the moment a "my mouse doesn't work" situation
+    // becomes real.
+    this.controller.onDragLook = () => {
+      if (this.mode !== 'space' || this._dragLookToasted) return;
+      this._dragLookToasted = true;
+      this.toasts.show('MOUSE', 'Pointer lock is unavailable in this browser — keep holding the left mouse button and move to look around.', 'info', 6000);
+    };
     this.fpsEl = el('div', 'fps-counter hidden');
     this.root.appendChild(this.fpsEl);
 
@@ -187,6 +200,30 @@ export class Game {
 
     this.confirmM = makeModal('ft-modal', 'FAST TRAVEL');
     this.root.appendChild(this.confirmM.root);
+
+    // Every full-viewport overlay, keyed by modal kind. syncModalState()
+    // re-derives this.modalOpen from these real DOM nodes so a modal shown
+    // outside openModal() (main-menu buttons, NEW GAME confirm) can never
+    // wedge the UI: ESC closes what is actually visible, and action gates
+    // see the truth instead of stale bookkeeping.
+    this._modalRegistry = {
+      pause: this.menu.pause,
+      confirm: [this.menu.confirmModal.root, this.confirmM.root],
+      missions: this.menu.missionsModal.root,
+      settings: this.menu.settingsModal.root,
+      ship: this.menu.shipModal.root,
+      help: this.menu.helpModal.root,
+      codex: this.codex.modal.root,
+      map: this.mapView.rootEl,
+      docked: this.dockPanel.modal.root,
+      planetinfo: this.planetInfo.rootEl
+    };
+    this.syncModalState();
+  }
+
+  /** Re-derive modalOpen from the actual DOM (see modalState.js). */
+  syncModalState() {
+    this.modalOpen = topVisibleModal(this._modalRegistry);
   }
 
   toastStats() { this.toasts.show('SERVICE COMPLETE', `Fuel ${Math.round(this.shipState.fuel)} · Hull ${Math.round(this.shipState.hull)}%`, 'info', 2000); }
@@ -203,11 +240,17 @@ export class Game {
     c.on('missions', () => this.toggleModal('missions'));
     c.on('help', () => this.toggleModal('help'));
     c.on('pause', () => {
+      // Re-sync from the DOM first: modals opened outside openModal()
+      // (main-menu buttons, NEW GAME confirm) would otherwise leave
+      // modalOpen null and ESC would do nothing while a full-screen modal
+      // still blocks every button.
+      this.syncModalState();
       if (this.modalOpen) this.closeModal();
       else if (this.mode !== 'menu' && this.mode !== 'loading') this.togglePause();
     });
     c.on('pointerlocklost', () => {
       if (this._expectedUnlock) { this._expectedUnlock = false; return; }
+      this.syncModalState();
       if (this.mode === 'space' && !this.modalOpen && !this.paused && !this.mobileActive) this.togglePause();
     });
     c.requestPointerLock();
@@ -399,7 +442,8 @@ export class Game {
     this.missions?.reset();
     this.syncAnomalies();
     this._syncMobileControls();
-    if (!this.mobileActive) this.canvas.requestPointerLock?.();
+    this.syncModalState(); // never carry stale modal state into flight
+    if (!this.mobileActive) this.controller.tryRequestPointerLock();
   }
 
   _wantsMobileControls() {
@@ -427,7 +471,7 @@ export class Game {
         document.exitPointerLock?.();
         this._expectedUnlock = true;
       } else {
-        this.canvas.requestPointerLock?.();
+        this.controller.tryRequestPointerLock();
       }
     }
   }
@@ -468,7 +512,11 @@ export class Game {
     } else {
       this.menu.hidePause();
       this.modalOpen = null;
-      if (!this.mobileActive && this.mode === 'space') this.canvas.requestPointerLock?.();
+      // Re-enable input immediately instead of waiting for the next
+      // per-frame update in _loop — otherwise a key pressed in the same
+      // instant as RESUME (e.g. M to open the map right away) is lost.
+      this.controller.enabled = true;
+      if (!this.mobileActive && this.mode === 'space') this.controller.tryRequestPointerLock();
     }
     this.audio.click();
   }
@@ -476,8 +524,15 @@ export class Game {
   // ================================================================ MODALS
   openModal(kind) {
     if (this.mode === 'menu') {
+      // Menu mode has no pointer lock to release, but the modal MUST be
+      // tracked: with modalOpen left null, ESC is a no-op and the open
+      // full-screen modal blocks every menu button behind it.
       if (kind === 'missions') this.menu.showMissions();
-      if (kind === 'codex') this.codex.show();
+      else if (kind === 'codex') this.codex.show();
+      else if (kind === 'ship') this.menu.showShip();
+      else if (kind === 'settings') this.menu.showSettings();
+      else if (kind === 'help') this.menu.showHelp();
+      this.modalOpen = kind;
       return;
     }
     this.closeModal();
@@ -501,15 +556,21 @@ export class Game {
     this.menu.helpModal.close();
     this.menu.confirmModal.close();
     this.confirmM.close();
-    if (this.modalOpen === 'pause') { this.menu.hidePause(); this.paused = false; }
+    if (this.modalOpen === 'pause') {
+      this.menu.hidePause();
+      this.paused = false;
+      this.controller.enabled = true; // same instant-resume rationale as togglePause
+    }
     this.modalOpen = null;
   }
   toggleModal(kind) {
+    this.syncModalState();
     if (this.modalOpen === kind) this.closeModal();
     else this.openModal(kind);
   }
   toggleMap() {
     if (this.mode === 'menu') return;
+    this.syncModalState();
     if (this.planetInfo.visible) this.planetInfo.hide();
     if (this.modalOpen === 'map') this.closeModal();
     else if (!this.modalOpen || this.modalOpen === 'pause') { if (this.modalOpen) this.closeModal(); this.openModal('map'); }
@@ -616,6 +677,27 @@ export class Game {
     // emergency ram-scoop: slow refuel when coasting
     const throttleOff = Math.abs(input.throttleF) < 0.05 && !input.boost;
     if (throttleOff) this.shipState.fuel = Math.min(stats.fuelCapacity, this.shipState.fuel + 0.9 * dt);
+
+    // aim assist (FFM/PUBG-style auto-aim): gently pull the nose toward the
+    // current target in free flight. Disabled while orbiting/warping/modal.
+    if (!this.warp && !this.orbiting && this.gs.state.settings.aimAssist !== false) {
+      const tp = this._targetWorldPos();
+      if (tp && this.target) {
+        const aid = computeAimAssist(
+          this.shipState.quaternion, this.shipState.position, tp, dt,
+          { enabled: true }
+        );
+        if (aid.engaging) {
+          input.yawDelta += aid.yawDelta;
+          input.pitchDelta += aid.pitchDelta;
+          this.aimAssistActive = true;
+        } else {
+          this.aimAssistActive = false;
+        }
+      } else {
+        this.aimAssistActive = false;
+      }
+    }
 
     if (this.warp) {
       this._updateWarp(dt, stats);
@@ -744,6 +826,7 @@ export class Game {
 
   // ---- interaction ----
   doInteract() {
+    this.syncModalState();
     if (this.mode !== 'space' || this.modalOpen || this.paused || this.planetInfo.visible || this.warp) return;
     // 1) dock at station
     for (const station of this.solar.stations) {
@@ -800,6 +883,7 @@ export class Game {
 
   // ---- scan ----
   tryScan() {
+    this.syncModalState();
     if (this.mode !== 'space' || this.modalOpen || this.paused || this.planetInfo.visible || this.warp) return;
     if (this.scanning) return;
     if (!this.target) { this.toasts.show('SCANNER', 'No target — press T to cycle targets.', 'warn'); this.audio.error(); return; }
@@ -1075,9 +1159,13 @@ export class Game {
   }
   undock() {
     this.dockPanel.hide();
+    // The MISSIONS panel can be stacked on top of the dock (dock → MISSIONS);
+    // closing it here so undocking never leaves a stray full-screen modal
+    // wedged above the HUD.
+    this.menu.missionsModal.close();
     this.modalOpen = null;
     this.toasts.show('UNDOCKED', `Clear of ${this.dockingStation?.name || 'station'}.`, 'info', 1600);
-    if (!this.mobileActive) this.canvas.requestPointerLock?.();
+    if (!this.mobileActive) this.controller.tryRequestPointerLock();
   }
 
   // ---- damage / death ----
@@ -1140,8 +1228,11 @@ export class Game {
     const row = el('div', 'btn-row');
     const go = el('button', 'btn btn-primary', 'CONFIRM');
     const no = el('button', 'btn', 'CANCEL');
-    go.addEventListener('click', () => { m.close(); this._beginWarp(destPos, cost, id); });
-    no.addEventListener('click', () => m.close());
+    // Close the dialog AND re-sync modal state — a stale 'confirm' flag
+    // would otherwise keep gating SCAN/interact/land until the next ESC.
+    const closeFt = () => { m.close(); this.syncModalState(); };
+    go.addEventListener('click', () => { closeFt(); this._beginWarp(destPos, cost, id); });
+    no.addEventListener('click', closeFt);
     row.append(go, no);
     m.body.appendChild(row);
     m.root.classList.remove('hidden');

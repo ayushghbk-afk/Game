@@ -369,16 +369,33 @@ input.input, select.input {
 .fe-box h1 { letter-spacing: 0.2em; font-weight: 400; color: var(--bad); margin-bottom: 14px; }
 .fe-box p { color: var(--dim); line-height: 1.6; }
 
-/* ---------- mobile controls ---------- */
+/* ---------- mobile controls (FPS layout: left stick, right drag-look,
+   big E "fire" button) ---------- */
 .mobile-controls { position: absolute; inset: 0; z-index: 26; pointer-events: none; }
 .mobile-controls > * { pointer-events: auto; }
+/* full-area drag-to-look: right ~58% of the screen. First child of the
+   shell, so every button painted later wins hit-testing over it. */
+.mc-look-zone {
+  position: absolute; top: 0; bottom: 0; left: 42%; right: 0;
+  touch-action: none;
+}
+.mc-look-ring {
+  position: absolute; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+  border: 2px solid rgba(110, 198, 255, 0.65); border-radius: 50%;
+  box-shadow: 0 0 14px rgba(110, 198, 255, 0.35), inset 0 0 10px rgba(110, 198, 255, 0.2);
+  opacity: 0; transition: opacity 0.2s; pointer-events: none;
+}
+.mc-look-hint {
+  position: absolute; right: 26px; bottom: 128px; pointer-events: none;
+  font-size: 10px; letter-spacing: 0.26em; color: rgba(207, 227, 255, 0.55);
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
 .joy-zone {
   position: absolute; bottom: 22px; width: 128px; height: 128px;
   border-radius: 50%; background: rgba(20, 40, 70, 0.28);
   border: 1px solid rgba(110, 180, 255, 0.22); touch-action: none;
 }
 .mc-left { left: 20px; }
-.mc-right { right: 20px; }
 .joy-base {
   position: absolute; inset: 20px; border-radius: 50%;
   border: 1px dashed rgba(110, 180, 255, 0.25);
@@ -394,16 +411,27 @@ input.input, select.input {
   font-size: 9px; letter-spacing: 0.3em; color: var(--dim);
 }
 .mc-actions {
-  position: absolute; right: 168px; bottom: 24px;
-  display: grid; grid-template-columns: 62px 62px; gap: 9px;
+  position: absolute; left: 168px; bottom: 24px;
+  display: grid; grid-template-columns: 54px 54px; gap: 9px;
 }
 .mc-btn {
   background: rgba(20, 40, 70, 0.6); border: 1px solid var(--panel-border);
-  color: var(--ink); border-radius: 50%; width: 62px; height: 62px;
+  color: var(--ink); border-radius: 50%; width: 54px; height: 54px;
   font-size: 11px; letter-spacing: 0.1em; touch-action: none;
 }
 .mc-btn.held { background: rgba(110, 198, 255, 0.4); border-color: var(--accent); }
 .mc-boost { border-color: var(--accent2) !important; color: #ffe9c4 !important; }
+/* the "fire" button: big, bottom-right, above the look area */
+.mc-interact {
+  position: absolute; right: 22px; bottom: 26px;
+  width: 78px; height: 78px; font-size: 24px; font-weight: 700;
+  border: 2px solid var(--accent2); color: #ffe9c4;
+  background: radial-gradient(circle at 50% 42%, rgba(255, 179, 71, 0.28), rgba(20, 40, 70, 0.6));
+  box-shadow: 0 0 18px rgba(255, 179, 71, 0.3);
+}
+.mc-interact.held {
+  background: radial-gradient(circle at 50% 42%, rgba(255, 179, 71, 0.55), rgba(60, 40, 12, 0.7));
+}
 .mc-top-actions {
   position: absolute; top: 52px; right: 8px;
   display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end;
@@ -427,20 +455,24 @@ input.input, select.input {
   /* Compact, non-overlapping touch layout for phones. */
   .joy-zone { width: 108px; height: 108px; bottom: 16px; }
   .mc-left { left: 12px; }
-  .mc-right { right: 12px; }
   .mc-actions {
-    right: 132px; bottom: 16px;
-    grid-template-columns: 58px; gap: 8px;
+    left: 132px; bottom: 16px;
+    grid-template-columns: 48px; gap: 8px;
   }
-  .mc-btn { width: 58px; height: 58px; font-size: 10px; }
+  .mc-btn { width: 48px; height: 48px; font-size: 10px; }
+  .mc-interact { width: 68px; height: 68px; font-size: 20px; right: 18px; bottom: 18px; }
+  .mc-look-zone { left: 38%; }
+  .mc-look-hint { bottom: 104px; right: 20px; }
   .mc-top-actions { top: 8px; right: 8px; max-width: 50vw; }
 }
 @media (max-height: 460px) {
   .hud-bottom { bottom: 12px; }
   .joy-zone { width: 92px; height: 92px; bottom: 8px; }
   .mc-actions {
-    bottom: 8px; right: 116px;
+    bottom: 8px; left: 118px;
     grid-template-columns: 52px; gap: 6px;
   }
   .mc-btn { width: 52px; height: 52px; }
+  .mc-interact { width: 62px; height: 62px; font-size: 18px; right: 14px; bottom: 12px; }
+  .mc-look-hint { display: none; }
 }
